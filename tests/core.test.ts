@@ -85,8 +85,10 @@ describe("state and x402 contracts", () => {
     );
     const decoded = JSON.parse(Buffer.from(encoded, "base64").toString("utf8"));
     const paymentRequired = parsePaymentRequired(decoded);
-    expect(paymentRequired.x402Version).toBe(2);
-    expect(paymentRequired.accepts[0]).toMatchObject({
+    expect(paymentRequired.success).toBe(true);
+    if (!paymentRequired.success) throw paymentRequired.error;
+    expect(paymentRequired.data.x402Version).toBe(2);
+    expect(paymentRequired.data.accepts[0]).toMatchObject({
       scheme: "exact",
       amount: "10000",
       network: "eip155:84532",

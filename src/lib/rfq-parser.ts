@@ -21,7 +21,9 @@ export function parseRfqText(raw: string): ParseResult {
   const spec: Partial<LabelSpec> = { ...DEFAULTS };
 
   const qtyMatch =
-    text.match(/([\d,]+(?:\.\d+)?)\s*(k|thousand)?\s*(?:labels?|pcs|pieces|units)\b/i) ??
+    text.match(
+      /(\d[\d,]*(?:\.\d+)?)\s*(k|thousand)?(?:\s+[a-z-]+){0,5}\s+(?:labels?|pcs|pieces|units)\b/i
+    ) ??
     text.match(/\b(?:qty|quantity)\s*[:=-]?\s*([\d,]+(?:\.\d+)?)\s*(k|thousand)?\b/i);
   if (qtyMatch) {
     const n = Number(qtyMatch[1].replace(/,/g, ""));
