@@ -123,12 +123,16 @@ export function createNegotiation(input: CreateNegotiationInput) {
       db.prepare(
         `INSERT INTO negotiation_private_terms (
           session_id, buyer_max_total_paise, buyer_max_deposit_paise,
+          allow_cross_sell, cross_sell_budget_paise, allowed_cross_sell_json,
           metadata_json, created_at
-        ) VALUES (?, ?, ?, ?, ?)`
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         sessionId,
         input.maxBudgetPaise,
         input.maxDepositPaise ?? null,
+        input.crossSellPolicy.allowed ? 1 : 0,
+        input.crossSellPolicy.maxAdditionalSpendPaise ?? null,
+        JSON.stringify(input.crossSellPolicy.allowedProductIds ?? []),
         JSON.stringify(input.metadata ?? {}),
         now
       );
@@ -464,6 +468,91 @@ export function runAutonomousNegotiation(sessionId: string) {
     if (decision.outcome !== "countered") return getNegotiation(sessionId);
   }
   throw new Error("Negotiation exceeded the safety iteration limit");
+}
+
+export function replaceWithSellerBundle(input: {
+  sessionId: string;
+  parentOfferId: string;
+  bundleId: string;
+  lines: PricedLine[];
+  strategy: string;
+  explanation: string;
+}) {
+  let offerId = "";
+  db.transaction(() => {
+    const session = getOpenSession(input.sessionId);
+    const option = db
+      .prepare(
+        `SELECT id FROM bundle_options
+         WHERE id = ? AND session_id = ? AND parent_offer_id = ? AND status = 'active'`
+      )
+      .get(input.bundleId, input.sessionId, input.parentOfferId);
+    if (!option) throw new Error("Bundle option is no longer active");
+    const parent = getOfferRow(input.parentOfferId);
+    if (
+      !parent ||
+      parent.session_id !== input.sessionId ||
+      parent.actor !== "seller" ||
+      parent.status !== "active"
+    ) {
+      throw new Error("Bundle must replace the active seller offer");
+    }
+    const policy = getPolicyById(session.seller_policy_id);
+    const now = Date.now();
+    const requirementIds = new Set(
+      getRequirementBounds(input.sessionId).map((requirement) => requirement.productId)
+    );
+    for (const line of input.lines) {
+      if (requirementIds.has(line.product.id)) continue;
+      db.prepare(
+        `INSERT INTO negotiation_requirements (
+          id, session_id, product_id, min_quantity, target_quantity,
+          max_quantity, required, substitutions_allowed, priority, created_at
+        ) VALUES (?, ?, ?, 0, ?, ?, 0, 0, 25, ?)`
+      ).run(
+        newId("req"),
+        input.sessionId,
+        line.product.id,
+        line.quantity,
+        line.product.maxQuantity,
+        now
+      );
+    }
+    db.prepare(`UPDATE negotiation_offers SET status = 'countered' WHERE id = ?`).run(
+      parent.id
+    );
+    offerId = newId("offer");
+    insertOffer({
+      id: offerId,
+      sessionId: input.sessionId,
+      sequence: parent.sequence + 1,
+      round: session.current_round,
+      actor: "seller",
+      parentOfferId: parent.id,
+      lines: input.lines,
+      deliveryDate: parent.delivery_date ?? undefined,
+      depositBps: parent.deposit_bps,
+      explanation: input.explanation,
+      terms: { bundleId: input.bundleId, strategy: input.strategy },
+      expiresAt: now + policy.offerTtlSeconds * 1000,
+      now,
+    });
+    db.prepare(`UPDATE bundle_options SET status = 'dismissed' WHERE session_id = ? AND status = 'active'`)
+      .run(input.sessionId);
+    db.prepare(`UPDATE bundle_options SET status = 'selected' WHERE id = ?`).run(
+      input.bundleId
+    );
+    db.prepare(`UPDATE negotiation_sessions SET updated_at = ? WHERE id = ?`).run(
+      now,
+      input.sessionId
+    );
+    insertEvent(input.sessionId, "bundle.selected", {
+      bundleId: input.bundleId,
+      sellerOfferId: offerId,
+      strategy: input.strategy,
+    });
+  })();
+  return getOffer(offerId);
 }
 
 export function getNegotiation(sessionId: string) {

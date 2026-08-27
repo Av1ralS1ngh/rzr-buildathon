@@ -11,16 +11,23 @@ import {
   DEFAULT_MERCHANT_ID,
   ensureDefaultCommerceData,
 } from "@/lib/commerce/catalog";
+import {
+  generateBundleOptions,
+  selectBundleOption,
+} from "@/lib/commerce/bundle-optimizer";
 
 beforeEach(() => {
   db.exec(`
     DELETE FROM idempotency_keys;
+    DELETE FROM bundle_option_items;
+    DELETE FROM bundle_options;
     DELETE FROM negotiation_events;
     DELETE FROM negotiation_offer_items;
     DELETE FROM negotiation_offers;
     DELETE FROM negotiation_requirements;
     DELETE FROM negotiation_private_terms;
     DELETE FROM negotiation_sessions;
+    DELETE FROM product_relationships;
     DELETE FROM seller_policies;
     DELETE FROM merchant_products;
     DELETE FROM merchants;
@@ -74,6 +81,61 @@ describe("deterministic negotiation engine", () => {
     expect(second.id).toBe(first.id);
     expect(second.offers).toHaveLength(1);
   });
+
+  it("creates a permissioned cross-sell mix that improves buyer utility and seller revenue", () => {
+    const session = createNegotiation({
+      merchantId: DEFAULT_MERCHANT_ID,
+      buyerAgentId: "bundle-buyer-agent",
+      maxBudgetPaise: 5_000_000,
+      maxDepositPaise: 1_500_000,
+      deliveryDate: futureDate(14),
+      requirements: [
+        {
+          productId: DEFAULT_LABEL_PRODUCT_ID,
+          minQuantity: 800,
+          targetQuantity: 1_000,
+          maxQuantity: 2_000,
+          required: true,
+          substitutionsAllowed: false,
+          priority: 100,
+        },
+      ],
+      crossSellPolicy: {
+        allowed: true,
+        maxAdditionalSpendPaise: 1_000_000,
+      },
+      metadata: {},
+    });
+
+    const bundles = generateBundleOptions(session.id);
+    const mix = bundles.find((bundle) => bundle.strategy === "mix_shift");
+    expect(mix).toBeDefined();
+    expect(mix?.totalPaise).toBeLessThanOrEqual(5_000_000);
+    expect(mix?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          productId: DEFAULT_LABEL_PRODUCT_ID,
+          quantity: 800,
+        }),
+        expect.objectContaining({
+          productId: "prod_roti_foil",
+          quantity: 3_000,
+          source: "cross_sell",
+        }),
+      ])
+    );
+
+    const offer = selectBundleOption(session.id, mix!.id);
+    expect(offer.totalPaise).toBe(4_750_000);
+    const agreed = runAutonomousNegotiation(session.id);
+    expect(agreed.status).toBe("agreed");
+    expect(agreed.acceptedOfferId).toBe(offer.id);
+  });
+
+  it("does not generate cross-sells without explicit buyer permission", () => {
+    const session = createExampleNegotiation();
+    expect(generateBundleOptions(session.id)).toEqual([]);
+  });
 });
 
 function createExampleNegotiation(idempotencyKey?: string) {
@@ -94,6 +156,7 @@ function createExampleNegotiation(idempotencyKey?: string) {
         priority: 100,
       },
     ],
+    crossSellPolicy: { allowed: false },
     idempotencyKey,
     metadata: {},
   });

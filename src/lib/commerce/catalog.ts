@@ -3,6 +3,8 @@ import type { CatalogProduct, SellerPolicy } from "./types";
 
 export const DEFAULT_MERCHANT_ID = "merchant_abc_labels";
 export const DEFAULT_LABEL_PRODUCT_ID = "prod_pickle_label";
+export const DEFAULT_FOIL_PRODUCT_ID = "prod_roti_foil";
+export const DEFAULT_MEAL_BOX_PRODUCT_ID = "prod_meal_box";
 
 type ProductRow = {
   id: string;
@@ -61,9 +63,9 @@ export function ensureDefaultCommerceData(): void {
       6_000,
       5_000,
       3_500,
-      1_000,
-      250_000,
       500,
+      250_000,
+      100,
       JSON.stringify({
         substrate: "pp_white",
         finish: "matte_lamination",
@@ -72,6 +74,95 @@ export function ensureDefaultCommerceData(): void {
       now,
       now
     );
+
+    db.prepare(
+      `INSERT OR IGNORE INTO merchant_products (
+        id, merchant_id, sku, name, category, description, unit, currency,
+        cost_paise, list_price_paise, target_price_paise, floor_price_paise,
+        min_quantity, max_quantity, quantity_step, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      DEFAULT_FOIL_PRODUCT_ID,
+      DEFAULT_MERCHANT_ID,
+      "FOIL-ROTI-STD",
+      "Branded roti and paratha foil wraps",
+      "food_wraps",
+      "Food-safe printed foil sheets for rotis and parathas.",
+      "wrap",
+      120,
+      300,
+      250,
+      180,
+      1_000,
+      1_000_000,
+      500,
+      JSON.stringify({ foodSafe: true, printable: true }),
+      now,
+      now
+    );
+
+    db.prepare(
+      `INSERT OR IGNORE INTO merchant_products (
+        id, merchant_id, sku, name, category, description, unit, currency,
+        cost_paise, list_price_paise, target_price_paise, floor_price_paise,
+        min_quantity, max_quantity, quantity_step, metadata_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      DEFAULT_MEAL_BOX_PRODUCT_ID,
+      DEFAULT_MERCHANT_ID,
+      "PKG-MEAL-STD",
+      "Printed takeaway meal boxes",
+      "packaging",
+      "Food-grade printed boxes for restaurant and retail orders.",
+      "box",
+      450,
+      900,
+      750,
+      600,
+      500,
+      250_000,
+      500,
+      JSON.stringify({ foodGrade: true, recyclable: true }),
+      now,
+      now
+    );
+
+    for (const relationship of [
+      {
+        id: "rel_label_foil",
+        target: DEFAULT_FOIL_PRODUCT_ID,
+        relevance: 95,
+        discountBps: 1_667,
+        attachQuantity: 3_000,
+        reason: "Add branded foil wraps while reducing label volume within approved flexibility.",
+      },
+      {
+        id: "rel_label_box",
+        target: DEFAULT_MEAL_BOX_PRODUCT_ID,
+        relevance: 75,
+        discountBps: 1_111,
+        attachQuantity: 1_000,
+        reason: "Add coordinated takeaway packaging to the same print production run.",
+      },
+    ]) {
+      db.prepare(
+        `INSERT OR IGNORE INTO product_relationships (
+          id, merchant_id, source_product_id, target_product_id,
+          relationship_type, relevance_score, bundle_discount_bps,
+          attach_quantity, metadata_json, created_at
+        ) VALUES (?, ?, ?, ?, 'complement', ?, ?, ?, ?, ?)`
+      ).run(
+        relationship.id,
+        DEFAULT_MERCHANT_ID,
+        DEFAULT_LABEL_PRODUCT_ID,
+        relationship.target,
+        relationship.relevance,
+        relationship.discountBps,
+        relationship.attachQuantity,
+        JSON.stringify({ reason: relationship.reason }),
+        now
+      );
+    }
 
     db.prepare(
       `INSERT OR IGNORE INTO seller_policies (

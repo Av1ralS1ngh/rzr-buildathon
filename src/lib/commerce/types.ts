@@ -35,6 +35,19 @@ export const createNegotiationSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional(),
     requirements: z.array(negotiationRequirementSchema).min(1).max(50),
+    crossSellPolicy: z
+      .object({
+        allowed: z.boolean(),
+        maxAdditionalSpendPaise: z
+          .number()
+          .int()
+          .min(0)
+          .max(10_000_000_000)
+          .optional(),
+        allowedProductIds: z.array(z.string().trim().min(1)).max(100).optional(),
+      })
+      .strict()
+      .default({ allowed: false }),
     idempotencyKey: z.string().trim().min(8).max(200).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })

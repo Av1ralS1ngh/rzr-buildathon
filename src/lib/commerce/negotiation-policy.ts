@@ -25,6 +25,9 @@ export function validateQuantities(
   lines: PricedLine[],
   requirements: RequirementBounds[]
 ): void {
+  for (const line of lines) {
+    validateProductQuantity(line.product, line.quantity);
+  }
   const byProduct = new Map(lines.map((line) => [line.product.id, line]));
   for (const requirement of requirements) {
     const line = byProduct.get(requirement.productId);
@@ -40,7 +43,6 @@ export function validateQuantities(
         `Quantity for '${requirement.productId}' must be between ${requirement.minQuantity} and ${requirement.maxQuantity}`
       );
     }
-    validateProductQuantity(line.product, line.quantity);
   }
 }
 

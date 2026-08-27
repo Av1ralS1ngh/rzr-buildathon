@@ -169,6 +169,9 @@ db.exec(`
     session_id TEXT PRIMARY KEY REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
     buyer_max_total_paise INTEGER NOT NULL CHECK (buyer_max_total_paise > 0),
     buyer_max_deposit_paise INTEGER,
+    allow_cross_sell INTEGER NOT NULL DEFAULT 0,
+    cross_sell_budget_paise INTEGER,
+    allowed_cross_sell_json TEXT NOT NULL DEFAULT '[]',
     metadata_json TEXT NOT NULL DEFAULT '{}',
     created_at INTEGER NOT NULL
   );
@@ -230,6 +233,50 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS product_relationships (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    source_product_id TEXT NOT NULL REFERENCES merchant_products(id) ON DELETE CASCADE,
+    target_product_id TEXT NOT NULL REFERENCES merchant_products(id) ON DELETE CASCADE,
+    relationship_type TEXT NOT NULL CHECK (
+      relationship_type IN ('complement', 'substitute')
+    ),
+    relevance_score INTEGER NOT NULL CHECK (relevance_score BETWEEN 0 AND 100),
+    bundle_discount_bps INTEGER NOT NULL CHECK (bundle_discount_bps BETWEEN 0 AND 9000),
+    attach_quantity INTEGER NOT NULL CHECK (attach_quantity > 0),
+    active INTEGER NOT NULL DEFAULT 1,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    UNIQUE (source_product_id, target_product_id, relationship_type)
+  );
+
+  CREATE TABLE IF NOT EXISTS bundle_options (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    parent_offer_id TEXT NOT NULL REFERENCES negotiation_offers(id),
+    status TEXT NOT NULL CHECK (
+      status IN ('active', 'selected', 'expired', 'dismissed')
+    ),
+    strategy TEXT NOT NULL CHECK (
+      strategy IN ('add_on', 'mix_shift', 'substitute')
+    ),
+    total_paise INTEGER NOT NULL CHECK (total_paise >= 0),
+    explanation TEXT NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS bundle_option_items (
+    id TEXT PRIMARY KEY,
+    bundle_id TEXT NOT NULL REFERENCES bundle_options(id) ON DELETE CASCADE,
+    product_id TEXT NOT NULL REFERENCES merchant_products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price_paise INTEGER NOT NULL CHECK (unit_price_paise >= 0),
+    source TEXT NOT NULL CHECK (source IN ('requested', 'cross_sell', 'substitute')),
+    created_at INTEGER NOT NULL,
+    UNIQUE (bundle_id, product_id)
+  );
+
   CREATE TABLE IF NOT EXISTS idempotency_keys (
     scope TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -254,6 +301,10 @@ db.exec(`
     ON negotiation_offers(session_id, sequence);
   CREATE INDEX IF NOT EXISTS idx_negotiation_events_session
     ON negotiation_events(session_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_relationships_source
+    ON product_relationships(source_product_id, relationship_type, relevance_score DESC);
+  CREATE INDEX IF NOT EXISTS idx_bundle_options_session
+    ON bundle_options(session_id, status, created_at DESC);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_commitments_order
     ON commitments(razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
 `);
@@ -272,6 +323,9 @@ const migrations = [
   `ALTER TABLE webhook_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'unknown'`,
   `ALTER TABLE negotiation_offer_items ADD COLUMN list_snapshot_paise INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE negotiation_offer_items ADD COLUMN target_snapshot_paise INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE negotiation_private_terms ADD COLUMN allow_cross_sell INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE negotiation_private_terms ADD COLUMN cross_sell_budget_paise INTEGER`,
+  `ALTER TABLE negotiation_private_terms ADD COLUMN allowed_cross_sell_json TEXT NOT NULL DEFAULT '[]'`,
 ];
 
 for (const migration of migrations) {
