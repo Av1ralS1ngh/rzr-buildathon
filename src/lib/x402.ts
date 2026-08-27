@@ -1,6 +1,11 @@
 import type { NextRequest } from "next/server";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { parsePaymentPayload } from "@x402/core/schemas";
+import type {
+  Network,
+  PaymentPayload,
+  PaymentRequirements,
+} from "@x402/core/types";
 
 export const X402_PRICES_USD = {
   label_rules: "0.02",
@@ -12,10 +17,14 @@ export type CapabilityName = keyof typeof X402_PRICES_USD;
 
 export function paymentRequirements(
   capability: CapabilityName
-) {
+): PaymentRequirements {
+  const network = process.env.X402_NETWORK ?? "eip155:84532";
+  if (!network.includes(":")) {
+    throw new Error("X402_NETWORK must use CAIP-2 format");
+  }
   return {
     scheme: "exact",
-    network: process.env.X402_NETWORK ?? "eip155:84532",
+    network: network as Network,
     amount: usdToAtomic(X402_PRICES_USD[capability]),
     payTo: process.env.X402_PAY_TO ?? "0x0000000000000000000000000000000000000000",
     maxTimeoutSeconds: 120,
@@ -97,6 +106,7 @@ export async function authorizeCapability(
     if (payload.x402Version !== 2) {
       return { ok: false, mode: "none", error: "Only x402 v2 payments are accepted" };
     }
+    const typedPayload = payload as PaymentPayload;
     const requirements = paymentRequirements(capability);
     const facilitatorToken = process.env.X402_FACILITATOR_TOKEN;
     const client = new HTTPFacilitatorClient({
@@ -109,7 +119,7 @@ export async function authorizeCapability(
         : undefined,
     });
 
-    const verified = await client.verify(payload, requirements);
+    const verified = await client.verify(typedPayload, requirements);
     if (!verified.isValid) {
       return {
         ok: false,
@@ -118,7 +128,7 @@ export async function authorizeCapability(
       };
     }
 
-    const settled = await client.settle(payload, requirements);
+    const settled = await client.settle(typedPayload, requirements);
     if (!settled.success) {
       return {
         ok: false,

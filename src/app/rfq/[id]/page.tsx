@@ -70,6 +70,8 @@ export default function RfqPage({ params }: { params: Promise<{ id: string }> })
   }, [rfqId]);
 
   useEffect(() => {
+    // Loading from the RFQ API is the synchronization performed by this effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load().catch((cause) =>
       setError(cause instanceof Error ? cause.message : "Unable to load RFQ")
     );

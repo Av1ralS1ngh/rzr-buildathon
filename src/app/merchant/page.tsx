@@ -19,8 +19,6 @@ export default function MerchantPage() {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const response = await fetch("/api/merchant/rfqs", { cache: "no-store" });
       const body = await response.json();
@@ -34,14 +32,19 @@ export default function MerchantPage() {
   }, []);
 
   useEffect(() => {
+    // Loading from an external API is the synchronization performed by this effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load();
   }, [load]);
 
   async function approve(id: string) {
+    setLoading(true);
+    setError(null);
     const response = await fetch(`/api/rfq/${id}/approve`, { method: "POST" });
     const body = await response.json();
     if (!response.ok) {
       setError(body.error ?? "Approval failed");
+      setLoading(false);
       return;
     }
     await load();

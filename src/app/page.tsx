@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const SAMPLE_RFQ =
   "I need 10,000 waterproof mango pickle jar labels 50x30mm, delivery within 10 days to 560001, budget ₹25,000. Labels will be on oil jars in refrigeration.";
 
 export default function HomePage() {
+  const router = useRouter();
   const [rawText, setRawText] = useState(SAMPLE_RFQ);
   const [loading, setLoading] = useState(false);
   const [rfqId, setRfqId] = useState<string | null>(null);
@@ -24,7 +26,7 @@ export default function HomePage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed");
       setRfqId(data.id);
-      window.location.href = `/rfq/${data.id}`;
+      router.push(`/rfq/${data.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
