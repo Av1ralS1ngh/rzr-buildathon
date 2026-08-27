@@ -61,9 +61,12 @@ authority documents include floors and costs and are only available through the
 internal authenticated endpoint. Public mandate endpoints expose shared checkout
 artifacts.
 
-The current profile uses compact ES256 JWS with no selectively disclosed claims.
-It is an AP2 compatibility layer, not a claim of full AP2 conformance. Full AP2
-requires tracking upstream SD-JWT-VC conformance and presentation rules.
+The current profile follows AP2 v0.2 field names, `vct` values, checkout hash,
+payment transaction reference, and ES256 signing. It uses compact ES256 JWS with
+no selectively disclosed claims or delegated key-binding chain. It is therefore
+an AP2 compatibility layer, not a claim of full AP2 conformance. Full AP2
+requires the pinned canonical schemas, RFC 9901 disclosures, and delegated
+SD-JWT key-binding conformance.
 
 ## Protocol surfaces
 
@@ -72,7 +75,7 @@ requires tracking upstream SD-JWT-VC conformance and presentation rules.
 | A2A 1.0 | `/.well-known/agent-card.json`, `/a2a/v1/message:send` | Structured buyer/seller agent commands |
 | UCP 2026-04-08 | `/.well-known/ucp`, `/ucp/v1/checkout-sessions/*` | Discovery and checkout |
 | AP2 compatibility | `/api/ap2/mandates/:sessionId` | Signed mandate chain |
-| ACP 2026-04-17 | `/checkout_sessions/*` | OpenAI/Stripe checkout mapping |
+| ACP 2026-04-17 | `/.well-known/acp.json`, `/checkout_sessions/*` | OpenAI/Stripe checkout mapping |
 | Razorpay | `/api/razorpay/webhook` | INR deposit settlement |
 | x402 | `/api/capabilities/*` | Machine-paid verification services |
 

@@ -106,7 +106,7 @@ Open http://localhost:43123
 | A2A 1.0 | `/.well-known/agent-card.json`, `/a2a/v1/message:send` |
 | UCP 2026-04-08 | `/.well-known/ucp`, `/ucp/v1/checkout-sessions/*` |
 | AP2 compatibility | `/api/ap2/mandates/:sessionId` |
-| ACP 2026-04-17 | `/checkout_sessions/*` |
+| ACP 2026-04-17 | `/.well-known/acp.json`, `/checkout_sessions/*` |
 
 The AP2 layer uses ES256-signed AP2-shaped artifacts without selective
 disclosures; it is intentionally described as a compatibility layer rather than
