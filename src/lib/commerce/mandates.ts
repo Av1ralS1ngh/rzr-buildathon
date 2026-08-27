@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import crypto, { type JsonWebKey } from "crypto";
 import db from "../db";
 import { newId } from "../commitment";
 
@@ -133,7 +133,7 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
         depositBps: offer.depositBps,
         depositPaise: offer.depositPaise,
         deliveryDate: offer.deliveryDate,
-        openMandateHash: openCheckout.payloadHash,
+        openMandateHash: openCheckout.payload_hash,
       },
     },
   });
@@ -148,12 +148,12 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
     expiresAt: Math.min(session.expires_at, offer.expiresAt),
     parentMandateId: openPayment.id,
     claims: {
-      transactionId: sha256(checkout.compactJws),
+      transactionId: sha256(checkout.compactJws!),
       payee: { id: session.merchant_id },
       paymentAmount: { currency: "INR", amount: offer.depositPaise },
       paymentInstrument: { handler: "razorpay", mode: "delegated_checkout" },
       checkoutMandateHash: checkout.payloadHash,
-      openPaymentMandateHash: openPayment.payloadHash,
+      openPaymentMandateHash: openPayment.payload_hash,
     },
   });
 }
@@ -182,7 +182,7 @@ export function createPaymentReceipt(input: {
         commerceOrderId: input.commerceOrderId,
         paymentId: input.paymentId,
         amount: { currency: "INR", value: input.amountPaise },
-        paymentMandateHash: payment.payloadHash,
+        paymentMandateHash: payment.payload_hash,
         capturedAt: new Date().toISOString(),
       },
     },
@@ -291,7 +291,11 @@ function createMandate(input: {
   const payloadHash = sha256(payloadJson);
   const compactJws = signPayload(payload, keys);
   const verification = verifyMandate(compactJws);
-  if (!verification.valid) throw new Error("Generated mandate failed verification");
+  if (!verification.valid) {
+    throw new Error(
+      `Generated mandate failed verification: ${verification.reason ?? "unknown reason"}`
+    );
+  }
   db.prepare(
     `INSERT INTO mandate_artifacts (
       id, session_id, mandate_type, vct, state, visibility, issuer, audience,

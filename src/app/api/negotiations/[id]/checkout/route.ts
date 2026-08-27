@@ -19,10 +19,7 @@ export async function POST(
   }
 }
 
-export async function GET(
-  req: NextRequest,
-  _ctx: { params: Promise<{ id: string }> }
-) {
+export async function GET(req: NextRequest) {
   try {
     const orderId = req.nextUrl.searchParams.get("orderId");
     if (!orderId) {

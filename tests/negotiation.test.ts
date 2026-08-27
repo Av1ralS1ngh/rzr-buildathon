@@ -151,7 +151,7 @@ describe("deterministic negotiation engine", () => {
     const session = createExampleNegotiation();
     const openCheckout = getMandate(session.id, "checkout", "open");
     expect(openCheckout.vct).toBe("mandate.checkout.open.1");
-    expect(verifyMandate(openCheckout.compactJws).valid).toBe(true);
+    expect(verifyMandate(openCheckout.compactJws!).valid).toBe(true);
     expect(JSON.stringify(listMandates(session.id))).not.toContain(
       "buyerMaxTotalPaise"
     );
@@ -163,7 +163,7 @@ describe("deterministic negotiation engine", () => {
     expect(closedPayment.payload).toMatchObject({
       paymentAmount: { currency: "INR", amount: 1_500_000 },
     });
-    expect(verifyMandate(closedPayment.compactJws).valid).toBe(true);
+    expect(verifyMandate(closedPayment.compactJws!).valid).toBe(true);
   });
 
   it("binds the accepted deal and mandates to an idempotent payment order", async () => {
@@ -185,7 +185,7 @@ describe("deterministic negotiation engine", () => {
     expect(confirmation.status).toBe(200);
     const receipt = getMandate(agreed.id, "payment_receipt", "receipt");
     expect(receipt.vct).toBe("speclock.payment-receipt.1");
-    expect(verifyMandate(receipt.compactJws).valid).toBe(true);
+    expect(verifyMandate(receipt.compactJws!).valid).toBe(true);
   });
 });
 
