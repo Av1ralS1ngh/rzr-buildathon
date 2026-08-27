@@ -24,6 +24,27 @@
    (INR)      (x402)       (x402)       (x402)
 ```
 
+## Agentic deal plane
+
+```text
+Buyer mandate (private ceiling + quantity authority)
+          │
+          ▼
+  Negotiation session ◀──────── Seller authority (costs + private floors)
+          │       immutable offers / bounded concessions
+          ├──────────────► Bundle optimizer ──► permissioned cross-sells
+          │
+          ▼
+ Accepted offer
+          ├──► closed checkout mandate
+          ├──► closed payment mandate
+          └──► commitment hash ──► Razorpay INR deposit
+```
+
+The domain logic lives in `src/lib/commerce` and is independent of A2A, UCP,
+AP2, and ACP transports. Protocol routes are adapters over one transaction and
+policy model, so no transport can bypass private buyer or seller limits.
+
 ## Spec Commitment
 
 Canonical hash over:
@@ -47,8 +68,9 @@ blocked (capability or policy failure)
 
 ## Data store
 
-SQLite (`data/speclock.db`) tables: `rfqs`, `quotes`, `commitments`,
-`revisions`, `capability_receipts`, `audit_events`, `webhook_events`.
+SQLite (`data/speclock.db`) includes the original RFQ tables plus merchant
+catalog, seller policy, negotiation, immutable offer, bundle, mandate, commerce
+order, event-outbox, and idempotency tables.
 
 The database enables WAL mode, foreign-key enforcement, a busy timeout, indexed
 lookups, and additive startup migrations. One active commitment is allowed per

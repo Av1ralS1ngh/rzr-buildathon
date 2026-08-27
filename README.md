@@ -1,6 +1,9 @@
 # SpecLock
 
-Checkout for custom labels in the agent economy. Humans pay production deposits in INR via Razorpay. Buyer agents pay invisible x402 micropayments for verification capabilities they cannot self-generate.
+A mandate-aware agentic deal desk for specification-heavy B2B commerce. Buyer
+and seller agents negotiate price, quantity, delivery, and permissioned bundles
+inside private commercial boundaries. Humans pay production deposits in INR via
+Razorpay; agents use x402 for invisible verification capabilities.
 
 Built for **Razorpay AI Buildathon — Track 01: AI Growth & Agentic Commerce**.
 
@@ -23,6 +26,21 @@ Custom food and cosmetics labels do not have SKUs. Before checkout, someone must
 
 Humans never see crypto. x402 is only for machine verification.
 
+## Negotiation and cross-selling
+
+- Seller opens at list price; private floors and costs never appear in offers.
+- Buyer ceilings remain private and are evaluated by the buyer-side policy.
+- Concessions are deterministic, round-limited, expiring, and may require a
+  reciprocal commercial give-back.
+- Quantity changes must remain inside the buyer-authorized range.
+- Complementary foil wraps and packaging are proposed only when cross-selling is
+  explicitly permitted.
+- Accepted offers create signed open/closed checkout and payment mandates before
+  Razorpay order creation.
+
+See [docs/NEGOTIATION.md](docs/NEGOTIATION.md) for invariants and transaction
+boundaries.
+
 ## Quick start
 
 ```bash
@@ -41,6 +59,8 @@ Open http://localhost:43123
 | `RAZORPAY_WEBHOOK_SECRET` | Optional | Webhook HMAC verification |
 | `ALLOW_MOCK_PAYMENTS` | Optional | Must be `true` to permit mock capture in production |
 | `SPELOCK_INTERNAL_SECRET` | Recommended | Orchestrator → capability internal auth |
+| `MANDATE_SIGNING_SECRET` | Required in production | Derives issuer-scoped ES256 mandate keys |
+| `ACP_API_KEY` | Recommended in production | Protects the ACP checkout adapter |
 | `X402_DEMO_AGENT_KEY` | Optional | Demo agent header for capability APIs |
 | `X402_PAY_TO` / `X402_FACILITATOR_URL` | Optional | Verify and settle x402 v2 payments |
 | `X402_FACILITATOR_TOKEN` | Optional | Bearer token if the facilitator requires one |
@@ -72,6 +92,26 @@ Open http://localhost:43123
 | `POST /api/capabilities/*` | x402-gated capability providers |
 | `POST /api/razorpay/webhook` | Webhook + client confirm |
 | `GET /api/merchant/rfqs` | Merchant queue |
+| `GET /api/catalog` | Public merchant catalog (private costs/floors omitted) |
+| `POST /api/negotiations` | Create negotiation and opening offer |
+| `POST /api/negotiations/:id/counter` | Submit bounded counteroffer |
+| `POST /api/negotiations/:id/auto` | Run deterministic buyer/seller rounds |
+| `GET/POST /api/negotiations/:id/bundles` | Generate/select cross-sell bundles |
+| `POST /api/negotiations/:id/checkout` | Create mandate-bound Razorpay order |
+
+## Agentic protocol discovery
+
+| Protocol | Surface |
+|---|---|
+| A2A 1.0 | `/.well-known/agent-card.json`, `/a2a/v1/message:send` |
+| UCP 2026-04-08 | `/.well-known/ucp`, `/ucp/v1/checkout-sessions/*` |
+| AP2 compatibility | `/api/ap2/mandates/:sessionId` |
+| ACP 2026-04-17 | `/checkout_sessions/*` |
+
+The AP2 layer uses ES256-signed AP2-shaped artifacts without selective
+disclosures; it is intentionally described as a compatibility layer rather than
+full protocol conformance. ACP checkout is mapped to Razorpay, so Stripe Shared
+Payment Tokens are not accepted across PSPs.
 
 ## x402 capability APIs
 
@@ -107,7 +147,8 @@ npm audit
 ```
 
 The test suite covers parsing, pricing, state transitions, x402 response shape,
-idempotent checkout and payment confirmation, and paid revision handling.
+idempotent checkout, paid revisions, private-bound negotiation, cross-sell
+permissioning, mandate signatures, and A2A/UCP/ACP adapter behavior.
 
 ## License
 
