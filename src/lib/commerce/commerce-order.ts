@@ -21,32 +21,33 @@ export type CommerceOrderRow = {
 };
 
 export async function createCommerceOrder(sessionId: string) {
-  const existing = getCommerceOrderBySession(sessionId);
+  const existing = await getCommerceOrderBySession(sessionId);
   if (existing?.status === "paid") return mapOrder(existing, true);
   if (existing?.status === "payment_pending" && existing.razorpay_order_id) {
     return mapOrder(existing, true);
   }
 
-  const session = db
+  const session = await db
     .prepare(
       `SELECT accepted_offer_id FROM negotiation_sessions
        WHERE id = ? AND status = 'agreed'`
     )
-    .get(sessionId) as { accepted_offer_id: string | null } | undefined;
+    .get<{ accepted_offer_id: string | null }>(sessionId);
   if (!session?.accepted_offer_id) {
     throw new Error("Negotiation must be agreed before checkout");
   }
-  const offer = db
+  const offer = await db
     .prepare(
       `SELECT total_paise, deposit_bps FROM negotiation_offers
        WHERE id = ? AND session_id = ? AND status = 'accepted'`
     )
-    .get(session.accepted_offer_id, sessionId) as
-    | { total_paise: number; deposit_bps: number }
-    | undefined;
+    .get<{ total_paise: number; deposit_bps: number }>(
+      session.accepted_offer_id,
+      sessionId
+    );
   if (!offer) throw new Error("Accepted offer not found");
-  const checkoutMandate = getMandate(sessionId, "checkout", "closed");
-  const paymentMandate = getMandate(sessionId, "payment", "closed");
+  const checkoutMandate = await getMandate(sessionId, "checkout", "closed");
+  const paymentMandate = await getMandate(sessionId, "payment", "closed");
   const amountPaise = Math.round(
     (offer.total_paise * offer.deposit_bps) / 10_000
   );
@@ -68,41 +69,45 @@ export async function createCommerceOrder(sessionId: string) {
 
   if (!existing) {
     try {
-      db.prepare(
-        `INSERT INTO commerce_orders (
+      await db
+        .prepare(
+          `INSERT INTO commerce_orders (
           id, session_id, accepted_offer_id, checkout_mandate_id,
           payment_mandate_id, status, currency, amount_paise, commitment_hash,
           created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, 'preparing', 'INR', ?, ?, ?, ?)`
-      ).run(
-        orderId,
-        sessionId,
-        session.accepted_offer_id,
-        checkoutMandate.id,
-        paymentMandate.id,
-        amountPaise,
-        commitmentHash,
-        now,
-        now
-      );
+        )
+        .run(
+          orderId,
+          sessionId,
+          session.accepted_offer_id,
+          checkoutMandate.id,
+          paymentMandate.id,
+          amountPaise,
+          commitmentHash,
+          now,
+          now
+        );
     } catch {
-      const concurrent = getCommerceOrderBySession(sessionId);
+      const concurrent = await getCommerceOrderBySession(sessionId);
       if (concurrent) return mapOrder(concurrent, true);
       throw new Error("Checkout is already being prepared");
     }
   }
 
   if (amountPaise === 0) {
-    db.prepare(
-      `UPDATE commerce_orders SET status = 'paid', updated_at = ? WHERE id = ?`
-    ).run(Date.now(), orderId);
-    createPaymentReceipt({
+    await db
+      .prepare(
+        `UPDATE commerce_orders SET status = 'paid', updated_at = ? WHERE id = ?`
+      )
+      .run(Date.now(), orderId);
+    await createPaymentReceipt({
       sessionId,
       commerceOrderId: orderId,
       paymentId: `pay_zero_${orderId}`,
       amountPaise: 0,
     });
-    return mapOrder(requireCommerceOrder(orderId), false);
+    return mapOrder(await requireCommerceOrder(orderId), false);
   }
 
   try {
@@ -125,34 +130,38 @@ export async function createCommerceOrder(sessionId: string) {
           })
         ).id
       : `order_mock_${orderId}`;
-    const update = db.prepare(
-      `UPDATE commerce_orders
+    const update = await db
+      .prepare(
+        `UPDATE commerce_orders
        SET status = 'payment_pending', razorpay_order_id = ?, updated_at = ?
        WHERE id = ? AND status IN ('preparing', 'failed')`
-    ).run(razorpayOrderId, Date.now(), orderId);
+      )
+      .run(razorpayOrderId, Date.now(), orderId);
     if (update.changes !== 1) throw new Error("Checkout changed concurrently");
     return {
-      ...mapOrder(requireCommerceOrder(orderId), false),
+      ...mapOrder(await requireCommerceOrder(orderId), false),
       mock,
       keyId: mock ? undefined : process.env.RAZORPAY_KEY_ID,
     };
   } catch (error) {
-    db.prepare(
-      `UPDATE commerce_orders SET status = 'failed', updated_at = ? WHERE id = ?`
-    ).run(Date.now(), orderId);
+    await db
+      .prepare(
+        `UPDATE commerce_orders SET status = 'failed', updated_at = ? WHERE id = ?`
+      )
+      .run(Date.now(), orderId);
     throw error;
   }
 }
 
-export function markCommerceOrderPaid(input: {
+export async function markCommerceOrderPaid(input: {
   razorpayOrderId: string;
   paymentId: string;
   amountPaise?: number;
   currency?: string;
 }) {
-  const order = db
+  const order = await db
     .prepare(`SELECT * FROM commerce_orders WHERE razorpay_order_id = ?`)
-    .get(input.razorpayOrderId) as CommerceOrderRow | undefined;
+    .get<CommerceOrderRow>(input.razorpayOrderId);
   if (!order) return null;
   if (input.currency && input.currency !== order.currency) {
     throw new Error("Payment currency does not match the negotiated order");
@@ -168,37 +177,39 @@ export function markCommerceOrderPaid(input: {
     throw new Error(`Negotiated order cannot be paid while '${order.status}'`);
   }
 
-  db.transaction(() => {
-    const update = db.prepare(
-      `UPDATE commerce_orders
+  await db.transaction(async () => {
+    const update = await db
+      .prepare(
+        `UPDATE commerce_orders
        SET status = 'paid', razorpay_payment_id = ?, updated_at = ?
        WHERE id = ? AND status = 'payment_pending'`
-    ).run(input.paymentId, Date.now(), order.id);
+      )
+      .run(input.paymentId, Date.now(), order.id);
     if (update.changes !== 1) throw new Error("Negotiated order changed concurrently");
-    createPaymentReceipt({
+    await createPaymentReceipt({
       sessionId: order.session_id,
       commerceOrderId: order.id,
       paymentId: input.paymentId,
       amountPaise: order.amount_paise,
     });
-  })();
-  return { duplicate: false, order: mapOrder(requireCommerceOrder(order.id), false) };
+  });
+  return { duplicate: false, order: mapOrder(await requireCommerceOrder(order.id), false) };
 }
 
-export function getCommerceOrder(orderId: string) {
-  return mapOrder(requireCommerceOrder(orderId), false);
+export async function getCommerceOrder(orderId: string) {
+  return mapOrder(await requireCommerceOrder(orderId), false);
 }
 
-function getCommerceOrderBySession(sessionId: string) {
+async function getCommerceOrderBySession(sessionId: string) {
   return db
     .prepare(`SELECT * FROM commerce_orders WHERE session_id = ?`)
-    .get(sessionId) as CommerceOrderRow | undefined;
+    .get<CommerceOrderRow>(sessionId);
 }
 
-function requireCommerceOrder(orderId: string) {
-  const order = db
+async function requireCommerceOrder(orderId: string) {
+  const order = await db
     .prepare(`SELECT * FROM commerce_orders WHERE id = ?`)
-    .get(orderId) as CommerceOrderRow | undefined;
+    .get<CommerceOrderRow>(orderId);
   if (!order) throw new Error("Negotiated order not found");
   return order;
 }

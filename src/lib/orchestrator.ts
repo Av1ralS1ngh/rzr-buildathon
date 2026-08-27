@@ -25,7 +25,7 @@ export async function orchestrateRfq(
   blockReason?: string;
 }> {
   const specHash = hashSpec(spec);
-  const existingQuote = db
+  const existingQuote = await db
     .prepare(
       `SELECT id, requires_approval FROM quotes
        WHERE rfq_id = ? AND spec_hash = ?
@@ -33,17 +33,22 @@ export async function orchestrateRfq(
          AND status = 'active' AND expires_at > ?
        ORDER BY created_at DESC LIMIT 1`
     )
-    .get(rfqId, specHash, artworkMeta?.hash ?? "", Date.now()) as
-    | { id: string; requires_approval: number }
-    | undefined;
-  if (existingQuote) {
-    db.prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`).run(
-      existingQuote.requires_approval ? "awaiting_approval" : "quoted",
-      Date.now(),
-      rfqId
+    .get<{ id: string; requires_approval: number }>(
+      rfqId,
+      specHash,
+      artworkMeta?.hash ?? "",
+      Date.now()
     );
+  if (existingQuote) {
+    await db
+      .prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`)
+      .run(
+        existingQuote.requires_approval ? "awaiting_approval" : "quoted",
+        Date.now(),
+        rfqId
+      );
     return {
-      receipts: getReceiptsForRfq(rfqId).filter(
+      receipts: (await getReceiptsForRfq(rfqId)).filter(
         (receipt) =>
           receipt.specHash === specHash &&
           (receipt.capability !== "print_check" ||
@@ -95,24 +100,25 @@ export async function orchestrateRfq(
     paidAt: new Date().toISOString(),
   });
 
-  const persistReceipts = db.transaction(() => {
+  await db.transaction(async () => {
     for (const receipt of receipts) {
-      db.prepare(
-        `INSERT INTO capability_receipts (id, rfq_id, capability, receipt_json, payment_mode, created_at)
+      await db
+        .prepare(
+          `INSERT INTO capability_receipts (id, rfq_id, capability, receipt_json, payment_mode, created_at)
          VALUES (?, ?, ?, ?, ?, ?)`
-      ).run(
-        receipt.receiptId,
-        rfqId,
-        receipt.capability,
-        JSON.stringify(receipt),
-        receipt.paymentMode,
-        Date.now()
-      );
+        )
+        .run(
+          receipt.receiptId,
+          rfqId,
+          receipt.capability,
+          JSON.stringify(receipt),
+          receipt.paymentMode,
+          Date.now()
+        );
     }
   });
-  persistReceipts();
 
-  logAudit(rfqId, "orchestrator", "capabilities_purchased", {
+  await logAudit(rfqId, "orchestrator", "capabilities_purchased", {
     receipts: receipts.map((r) => ({
       capability: r.capability,
       status: r.status,
@@ -122,12 +128,10 @@ export async function orchestrateRfq(
 
   const failed = receipts.some((r) => r.status === "fail");
   if (failed) {
-    db.prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`).run(
-      "blocked",
-      Date.now(),
-      rfqId
-    );
-    logAudit(rfqId, "orchestrator", "capability_check_blocked", {
+    await db
+      .prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`)
+      .run("blocked", Date.now(), rfqId);
+    await logAudit(rfqId, "orchestrator", "capability_check_blocked", {
       failed: receipts
         .filter((receipt) => receipt.status === "fail")
         .map((receipt) => receipt.capability),
@@ -143,7 +147,9 @@ export async function orchestrateRfq(
     const quote = calculateQuote(spec);
     const policy = policyCheckQuote(spec, quote.totalPaise);
     if (!policy.allowed) {
-      db.prepare(`UPDATE rfqs SET status = ? WHERE id = ?`).run("blocked", rfqId);
+      await db
+        .prepare(`UPDATE rfqs SET status = ? WHERE id = ?`)
+        .run("blocked", rfqId);
       return {
         receipts,
         blocked: true,
@@ -155,35 +161,38 @@ export async function orchestrateRfq(
     const expiresAt = Date.now() + 48 * 60 * 60 * 1000;
 
     const nextStatus = policy.requiresApproval ? "awaiting_approval" : "quoted";
-    db.transaction(() => {
-      db.prepare(`UPDATE quotes SET status = 'superseded' WHERE rfq_id = ? AND status = 'active'`)
+    await db.transaction(async () => {
+      await db
+        .prepare(
+          `UPDATE quotes SET status = 'superseded' WHERE rfq_id = ? AND status = 'active'`
+        )
         .run(rfqId);
-      db.prepare(
-        `INSERT INTO quotes (
+      await db
+        .prepare(
+          `INSERT INTO quotes (
           id, rfq_id, line_items_json, total_paise, deposit_paise, spec_hash, artwork_hash,
           pricebook_version, expires_at, created_at, status, requires_approval
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
-      ).run(
-        quoteId,
-        rfqId,
-        JSON.stringify(quote.lineItems),
-        quote.totalPaise,
-        quote.depositPaise,
-        specHash,
-        artworkMeta?.hash ?? null,
-        getPricebookVersion(),
-        expiresAt,
-        Date.now(),
-        policy.requiresApproval ? 1 : 0
-      );
-      db.prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`).run(
-        nextStatus,
-        Date.now(),
-        rfqId
-      );
-    })();
+        )
+        .run(
+          quoteId,
+          rfqId,
+          JSON.stringify(quote.lineItems),
+          quote.totalPaise,
+          quote.depositPaise,
+          specHash,
+          artworkMeta?.hash ?? null,
+          getPricebookVersion(),
+          expiresAt,
+          Date.now(),
+          policy.requiresApproval ? 1 : 0
+        );
+      await db
+        .prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`)
+        .run(nextStatus, Date.now(), rfqId);
+    });
 
-    logAudit(rfqId, "pricebook", "quote_generated", {
+    await logAudit(rfqId, "pricebook", "quote_generated", {
       quoteId,
       totalPaise: quote.totalPaise,
       depositPaise: quote.depositPaise,
@@ -193,21 +202,23 @@ export async function orchestrateRfq(
     return { receipts, quoteId, blocked: false };
   } catch (err) {
     const message = err instanceof Error ? err.message : "Quote failed";
-    db.prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`).run(
-      "blocked",
-      Date.now(),
-      rfqId
-    );
-    logAudit(rfqId, "pricebook", "quote_blocked", { message });
+    await db
+      .prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`)
+      .run("blocked", Date.now(), rfqId);
+    await logAudit(rfqId, "pricebook", "quote_blocked", { message });
     return { receipts, blocked: true, blockReason: message };
   }
 }
 
-export function getReceiptsForRfq(rfqId: string): CapabilityReceipt[] {
-  return db
+export async function getReceiptsForRfq(
+  rfqId: string
+): Promise<CapabilityReceipt[]> {
+  const rows = await db
     .prepare(
       `SELECT receipt_json FROM capability_receipts WHERE rfq_id = ? ORDER BY created_at ASC`
     )
-    .all(rfqId)
-    .map((row) => JSON.parse((row as { receipt_json: string }).receipt_json) as CapabilityReceipt);
+    .all<{ receipt_json: string }>(rfqId);
+  return rows.map(
+    (row) => JSON.parse(row.receipt_json) as CapabilityReceipt
+  );
 }

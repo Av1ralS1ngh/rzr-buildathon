@@ -24,10 +24,10 @@ type MandateRow = {
   verified_at: number | null;
 };
 
-export function createOpenMandates(sessionId: string): void {
-  if (getMandateRow(sessionId, "checkout", "open")) return;
-  const context = getMandateContext(sessionId);
-  const checkout = createMandate({
+export async function createOpenMandates(sessionId: string): Promise<void> {
+  if (await getMandateRow(sessionId, "checkout", "open")) return;
+  const context = await getMandateContext(sessionId);
+  const checkout = await createMandate({
     sessionId,
     mandateType: "checkout",
     vct: "mandate.checkout.open.1",
@@ -77,7 +77,7 @@ export function createOpenMandates(sessionId: string): void {
       },
     },
   });
-  createMandate({
+  await createMandate({
     sessionId,
     mandateType: "payment",
     vct: "mandate.payment.open.1",
@@ -114,7 +114,7 @@ export function createOpenMandates(sessionId: string): void {
       },
     },
   });
-  createMandate({
+  await createMandate({
     sessionId,
     mandateType: "seller_authority",
     vct: "speclock.seller-authority.1",
@@ -144,9 +144,12 @@ export function createOpenMandates(sessionId: string): void {
   });
 }
 
-export function createClosedMandates(sessionId: string, acceptedOfferId: string): void {
-  if (getMandateRow(sessionId, "checkout", "closed")) return;
-  const session = db
+export async function createClosedMandates(
+  sessionId: string,
+  acceptedOfferId: string
+): Promise<void> {
+  if (await getMandateRow(sessionId, "checkout", "closed")) return;
+  const session = await db
     .prepare(
       `SELECT s.merchant_id, m.name AS merchant_name,
               s.buyer_agent_id, s.expires_at
@@ -154,18 +157,16 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
        JOIN merchants m ON m.id = s.merchant_id
        WHERE s.id = ? AND s.status = 'agreed'`
     )
-    .get(sessionId) as
-    | {
-        merchant_id: string;
-        merchant_name: string;
-        buyer_agent_id: string;
-        expires_at: number;
-      }
-    | undefined;
+    .get<{
+      merchant_id: string;
+      merchant_name: string;
+      buyer_agent_id: string;
+      expires_at: number;
+    }>(sessionId);
   if (!session) throw new Error("Agreed negotiation not found for mandate closure");
-  const offer = getOfferForMandate(sessionId, acceptedOfferId);
-  const openCheckout = requireMandate(sessionId, "checkout", "open");
-  const openPayment = requireMandate(sessionId, "payment", "open");
+  const offer = await getOfferForMandate(sessionId, acceptedOfferId);
+  const openCheckout = await requireMandate(sessionId, "checkout", "open");
+  const openPayment = await requireMandate(sessionId, "payment", "open");
   const checkoutJwt = signCheckoutPayload({
     issuer: session.merchant_id,
     audience: session.buyer_agent_id,
@@ -184,7 +185,7 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
   });
   const checkoutHash = sha256(checkoutJwt);
 
-  const checkout = createMandate({
+  const checkout = await createMandate({
     sessionId,
     mandateType: "checkout",
     vct: "mandate.checkout.1",
@@ -203,7 +204,7 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
       },
     },
   });
-  createMandate({
+  await createMandate({
     sessionId,
     mandateType: "payment",
     vct: "mandate.payment.1",
@@ -230,15 +231,15 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
   });
 }
 
-export function createPaymentReceipt(input: {
+export async function createPaymentReceipt(input: {
   sessionId: string;
   commerceOrderId: string;
   paymentId: string;
   amountPaise: number;
 }) {
-  const existing = getMandateRow(input.sessionId, "payment_receipt", "receipt");
+  const existing = await getMandateRow(input.sessionId, "payment_receipt", "receipt");
   if (existing) return toMandate(existing, true);
-  const payment = requireMandate(input.sessionId, "payment", "closed");
+  const payment = await requireMandate(input.sessionId, "payment", "closed");
   return createMandate({
     sessionId: input.sessionId,
     mandateType: "payment_receipt",
@@ -261,30 +262,29 @@ export function createPaymentReceipt(input: {
   });
 }
 
-export function listMandates(
+export async function listMandates(
   sessionId: string,
   audience: MandateAudience = "shared"
 ) {
   const allowed =
     audience === "shared" ? ["shared"] : ["shared", audience];
   const placeholders = allowed.map(() => "?").join(", ");
-  return (
-    db
-      .prepare(
-        `SELECT * FROM mandate_artifacts
+  const rows = await db
+    .prepare(
+      `SELECT * FROM mandate_artifacts
          WHERE session_id = ? AND visibility IN (${placeholders})
          ORDER BY issued_at ASC`
-      )
-      .all(sessionId, ...allowed) as MandateRow[]
-  ).map((row) => toMandate(row, true));
+    )
+    .all<MandateRow>(sessionId, ...allowed);
+  return rows.map((row) => toMandate(row, true));
 }
 
-export function getMandate(
+export async function getMandate(
   sessionId: string,
   mandateType: string,
   state: MandateRow["state"]
 ) {
-  const row = requireMandate(sessionId, mandateType, state);
+  const row = await requireMandate(sessionId, mandateType, state);
   return toMandate(row, true);
 }
 
@@ -331,7 +331,7 @@ export function publicJwkForIssuer(issuer: string) {
   return { ...keys.publicJwk, kid: keys.keyId, use: "sig", alg: "ES256" };
 }
 
-function createMandate(input: {
+async function createMandate(input: {
   sessionId: string;
   mandateType: string;
   vct: string;
@@ -343,7 +343,7 @@ function createMandate(input: {
   parentMandateId?: string;
   claims: Record<string, unknown>;
 }) {
-  const existing = getMandateRow(input.sessionId, input.mandateType, input.state);
+  const existing = await getMandateRow(input.sessionId, input.mandateType, input.state);
   if (existing) return toMandate(existing, true);
   const id = newId("mandate");
   const now = Date.now();
@@ -368,31 +368,33 @@ function createMandate(input: {
       `Generated mandate failed verification: ${verification.reason ?? "unknown reason"}`
     );
   }
-  db.prepare(
-    `INSERT INTO mandate_artifacts (
+  await db
+    .prepare(
+      `INSERT INTO mandate_artifacts (
       id, session_id, mandate_type, vct, state, visibility, issuer, audience,
       parent_mandate_id, payload_json, payload_hash, compact_jws, algorithm,
       key_id, issued_at, expires_at, verified_at, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ES256', ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    input.sessionId,
-    input.mandateType,
-    input.vct,
-    input.state,
-    input.visibility,
-    input.issuer,
-    input.audience,
-    input.parentMandateId ?? null,
-    payloadJson,
-    payloadHash,
-    compactJws,
-    keys.keyId,
-    now,
-    input.expiresAt,
-    now,
-    now
-  );
+    )
+    .run(
+      id,
+      input.sessionId,
+      input.mandateType,
+      input.vct,
+      input.state,
+      input.visibility,
+      input.issuer,
+      input.audience,
+      input.parentMandateId ?? null,
+      payloadJson,
+      payloadHash,
+      compactJws,
+      keys.keyId,
+      now,
+      input.expiresAt,
+      now,
+      now
+    );
   return {
     id,
     sessionId: input.sessionId,
@@ -501,8 +503,8 @@ function mandateSigningSecret() {
   return "speclock-local-development-mandate-key";
 }
 
-function getMandateContext(sessionId: string) {
-  const session = db
+async function getMandateContext(sessionId: string) {
+  const session = await db
     .prepare(
       `SELECT s.merchant_id, m.name AS merchant_name,
               s.buyer_agent_id, s.seller_policy_id,
@@ -514,33 +516,31 @@ function getMandateContext(sessionId: string) {
        JOIN negotiation_private_terms t ON t.session_id = s.id
        WHERE s.id = ?`
     )
-    .get(sessionId) as
-    | {
-        merchant_id: string;
-        merchant_name: string;
-        buyer_agent_id: string;
-        seller_policy_id: string;
-        delivery_date: string | null;
-        expires_at: number;
-        buyer_max_total_paise: number;
-        buyer_max_deposit_paise: number | null;
-        allow_cross_sell: number;
-        allowed_cross_sell_json: string;
-      }
-    | undefined;
+    .get<{
+      merchant_id: string;
+      merchant_name: string;
+      buyer_agent_id: string;
+      seller_policy_id: string;
+      delivery_date: string | null;
+      expires_at: number;
+      buyer_max_total_paise: number;
+      buyer_max_deposit_paise: number | null;
+      allow_cross_sell: number;
+      allowed_cross_sell_json: string;
+    }>(sessionId);
   if (!session) throw new Error("Negotiation not found");
-  const requirements = db
+  const requirements = await db
     .prepare(
       `SELECT product_id, min_quantity, target_quantity, max_quantity,
               required, substitutions_allowed, priority
        FROM negotiation_requirements WHERE session_id = ? ORDER BY priority DESC`
     )
-    .all(sessionId) as Array<Record<string, unknown>>;
-  const policy = db
+    .all<Record<string, unknown>>(sessionId);
+  const policy = await db
     .prepare(`SELECT * FROM seller_policies WHERE id = ?`)
-    .get(session.seller_policy_id) as Record<string, unknown> | undefined;
+    .get<Record<string, unknown>>(session.seller_policy_id);
   if (!policy) throw new Error("Seller policy not found");
-  const products = db
+  const products = await db
     .prepare(
       `SELECT DISTINCT p.id, p.name, p.cost_paise, p.floor_price_paise,
               p.target_price_paise, p.list_price_paise
@@ -548,7 +548,7 @@ function getMandateContext(sessionId: string) {
        JOIN negotiation_requirements r ON r.product_id = p.id
        WHERE r.session_id = ?`
     )
-    .all(sessionId) as Array<Record<string, unknown>>;
+    .all<Record<string, unknown>>(sessionId);
   return {
     merchantId: session.merchant_id,
     merchantName: session.merchant_name,
@@ -588,30 +588,28 @@ function getMandateContext(sessionId: string) {
   };
 }
 
-function getOfferForMandate(sessionId: string, offerId: string) {
-  const offer = db
+async function getOfferForMandate(sessionId: string, offerId: string) {
+  const offer = await db
     .prepare(
       `SELECT total_paise, deposit_bps, delivery_date, expires_at
        FROM negotiation_offers
        WHERE id = ? AND session_id = ? AND status = 'accepted'`
     )
-    .get(offerId, sessionId) as
-    | {
-        total_paise: number;
-        deposit_bps: number;
-        delivery_date: string | null;
-        expires_at: number;
-      }
-    | undefined;
+    .get<{
+      total_paise: number;
+      deposit_bps: number;
+      delivery_date: string | null;
+      expires_at: number;
+    }>(offerId, sessionId);
   if (!offer) throw new Error("Accepted offer not found");
-  const items = db
+  const items = await db
     .prepare(
       `SELECT i.product_id, p.sku, p.name, i.quantity, i.unit_price_paise, i.source
        FROM negotiation_offer_items i
        JOIN merchant_products p ON p.id = i.product_id
        WHERE i.offer_id = ? ORDER BY i.created_at, i.id`
     )
-    .all(offerId) as Array<Record<string, unknown>>;
+    .all<Record<string, unknown>>(offerId);
   return {
     totalPaise: offer.total_paise,
     depositBps: offer.deposit_bps,
@@ -629,7 +627,7 @@ function getOfferForMandate(sessionId: string, offerId: string) {
   };
 }
 
-function getMandateRow(
+async function getMandateRow(
   sessionId: string,
   mandateType: string,
   state: MandateRow["state"]
@@ -639,15 +637,15 @@ function getMandateRow(
       `SELECT * FROM mandate_artifacts
        WHERE session_id = ? AND mandate_type = ? AND state = ?`
     )
-    .get(sessionId, mandateType, state) as MandateRow | undefined;
+    .get<MandateRow>(sessionId, mandateType, state);
 }
 
-function requireMandate(
+async function requireMandate(
   sessionId: string,
   mandateType: string,
   state: MandateRow["state"]
 ) {
-  const row = getMandateRow(sessionId, mandateType, state);
+  const row = await getMandateRow(sessionId, mandateType, state);
   if (!row) throw new Error(`${state} ${mandateType} mandate not found`);
   return row;
 }

@@ -11,7 +11,7 @@ export const ACP_VERSION = "2026-04-17";
 export const UCP_VERSION = "2026-04-08";
 export const A2A_VERSION = "1.0";
 
-export function createProtocolNegotiation(input: {
+export async function createProtocolNegotiation(input: {
   protocol: "ucp" | "acp";
   buyerAgentId: string;
   idempotencyKey: string;
@@ -19,15 +19,17 @@ export function createProtocolNegotiation(input: {
   items: Array<{ productId: string; quantity: number }>;
   metadata?: Record<string, unknown>;
 }) {
-  ensureDefaultCommerceData();
+  await ensureDefaultCommerceData();
   if (input.currency.toUpperCase() !== "INR") {
     throw new Error("SpecLock currently settles physical orders in INR");
   }
-  const products = input.items.map((item) => {
-    const product = getProduct(item.productId);
-    if (!product) throw new Error(`Unknown product '${item.productId}'`);
-    return { item, product };
-  });
+  const products = await Promise.all(
+    input.items.map(async (item) => {
+      const product = await getProduct(item.productId);
+      if (!product) throw new Error(`Unknown product '${item.productId}'`);
+      return { item, product };
+    })
+  );
   const listTotal = products.reduce(
     (sum, entry) => sum + entry.item.quantity * entry.product.listPricePaise,
     0
@@ -84,10 +86,10 @@ export function createProtocolNegotiation(input: {
   });
 }
 
-export function toAcpCheckout(sessionId: string) {
-  const session = getNegotiation(sessionId);
+export async function toAcpCheckout(sessionId: string) {
+  const session = await getNegotiation(sessionId);
   const offer = selectedOffer(session.offers, session.acceptedOfferId);
-  const order = getOrderForSession(sessionId);
+  const order = await getOrderForSession(sessionId);
   const status =
     order?.status === "paid"
       ? "completed"
@@ -215,10 +217,10 @@ export function toAcpCheckout(sessionId: string) {
   };
 }
 
-export function toUcpCheckout(sessionId: string) {
-  const session = getNegotiation(sessionId);
+export async function toUcpCheckout(sessionId: string) {
+  const session = await getNegotiation(sessionId);
   const offer = selectedOffer(session.offers, session.acceptedOfferId);
-  const order = getOrderForSession(sessionId);
+  const order = await getOrderForSession(sessionId);
   return {
     ucp: {
       version: UCP_VERSION,
@@ -289,20 +291,18 @@ function selectedOffer(
   return offer;
 }
 
-function getOrderForSession(sessionId: string) {
+async function getOrderForSession(sessionId: string) {
   return db
     .prepare(
       `SELECT id, status, amount_paise, razorpay_order_id
        FROM commerce_orders WHERE session_id = ?`
     )
-    .get(sessionId) as
-    | {
-        id: string;
-        status: string;
-        amount_paise: number;
-        razorpay_order_id: string | null;
-      }
-    | undefined;
+    .get<{
+      id: string;
+      status: string;
+      amount_paise: number;
+      razorpay_order_id: string | null;
+    }>(sessionId);
 }
 
 function appUrl() {

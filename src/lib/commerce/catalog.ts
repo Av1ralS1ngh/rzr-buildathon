@@ -37,95 +37,107 @@ type PolicyRow = {
   deposit_bps: number;
 };
 
-export function ensureDefaultCommerceData(): void {
+export async function ensureDefaultCommerceData(): Promise<void> {
   const now = Date.now();
-  db.transaction(() => {
-    db.prepare(
-      `INSERT OR IGNORE INTO merchants (id, name, currency, created_at, updated_at)
-       VALUES (?, ?, 'INR', ?, ?)`
-    ).run(DEFAULT_MERCHANT_ID, "ABC Labels & Packaging", now, now);
+  await db.transaction(async () => {
+    await db
+      .prepare(
+        `INSERT INTO merchants (id, name, currency, created_at, updated_at)
+         VALUES (?, ?, 'INR', ?, ?)
+         ON CONFLICT (id) DO NOTHING`
+      )
+      .run(DEFAULT_MERCHANT_ID, "ABC Labels & Packaging", now, now);
 
-    db.prepare(
-      `INSERT OR IGNORE INTO merchant_products (
+    await db
+      .prepare(
+        `INSERT INTO merchant_products (
         id, merchant_id, sku, name, category, description, unit, currency,
         cost_paise, list_price_paise, target_price_paise, floor_price_paise,
         min_quantity, max_quantity, quantity_step, metadata_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      DEFAULT_LABEL_PRODUCT_ID,
-      DEFAULT_MERCHANT_ID,
-      "LBL-PICKLE-STD",
-      "Custom waterproof pickle labels",
-      "labels",
-      "Oil- and refrigeration-resistant custom labels with matte lamination.",
-      "label",
-      2_000,
-      6_000,
-      5_000,
-      3_500,
-      500,
-      250_000,
-      100,
-      JSON.stringify({
-        substrate: "pp_white",
-        finish: "matte_lamination",
-        dimensionsMm: { width: 50, height: 30 },
-      }),
-      now,
-      now
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO NOTHING`
+      )
+      .run(
+        DEFAULT_LABEL_PRODUCT_ID,
+        DEFAULT_MERCHANT_ID,
+        "LBL-PICKLE-STD",
+        "Custom waterproof pickle labels",
+        "labels",
+        "Oil- and refrigeration-resistant custom labels with matte lamination.",
+        "label",
+        2_000,
+        6_000,
+        5_000,
+        3_500,
+        500,
+        250_000,
+        100,
+        JSON.stringify({
+          substrate: "pp_white",
+          finish: "matte_lamination",
+          dimensionsMm: { width: 50, height: 30 },
+        }),
+        now,
+        now
+      );
 
-    db.prepare(
-      `INSERT OR IGNORE INTO merchant_products (
+    await db
+      .prepare(
+        `INSERT INTO merchant_products (
         id, merchant_id, sku, name, category, description, unit, currency,
         cost_paise, list_price_paise, target_price_paise, floor_price_paise,
         min_quantity, max_quantity, quantity_step, metadata_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      DEFAULT_FOIL_PRODUCT_ID,
-      DEFAULT_MERCHANT_ID,
-      "FOIL-ROTI-STD",
-      "Branded roti and paratha foil wraps",
-      "food_wraps",
-      "Food-safe printed foil sheets for rotis and parathas.",
-      "wrap",
-      120,
-      300,
-      250,
-      180,
-      1_000,
-      1_000_000,
-      500,
-      JSON.stringify({ foodSafe: true, printable: true }),
-      now,
-      now
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO NOTHING`
+      )
+      .run(
+        DEFAULT_FOIL_PRODUCT_ID,
+        DEFAULT_MERCHANT_ID,
+        "FOIL-ROTI-STD",
+        "Branded roti and paratha foil wraps",
+        "food_wraps",
+        "Food-safe printed foil sheets for rotis and parathas.",
+        "wrap",
+        120,
+        300,
+        250,
+        180,
+        1_000,
+        1_000_000,
+        500,
+        JSON.stringify({ foodSafe: true, printable: true }),
+        now,
+        now
+      );
 
-    db.prepare(
-      `INSERT OR IGNORE INTO merchant_products (
+    await db
+      .prepare(
+        `INSERT INTO merchant_products (
         id, merchant_id, sku, name, category, description, unit, currency,
         cost_paise, list_price_paise, target_price_paise, floor_price_paise,
         min_quantity, max_quantity, quantity_step, metadata_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      DEFAULT_MEAL_BOX_PRODUCT_ID,
-      DEFAULT_MERCHANT_ID,
-      "PKG-MEAL-STD",
-      "Printed takeaway meal boxes",
-      "packaging",
-      "Food-grade printed boxes for restaurant and retail orders.",
-      "box",
-      450,
-      900,
-      750,
-      600,
-      500,
-      250_000,
-      500,
-      JSON.stringify({ foodGrade: true, recyclable: true }),
-      now,
-      now
-    );
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (id) DO NOTHING`
+      )
+      .run(
+        DEFAULT_MEAL_BOX_PRODUCT_ID,
+        DEFAULT_MERCHANT_ID,
+        "PKG-MEAL-STD",
+        "Printed takeaway meal boxes",
+        "packaging",
+        "Food-grade printed boxes for restaurant and retail orders.",
+        "box",
+        450,
+        900,
+        750,
+        600,
+        500,
+        250_000,
+        500,
+        JSON.stringify({ foodGrade: true, recyclable: true }),
+        now,
+        now
+      );
 
     for (const relationship of [
       {
@@ -145,76 +157,87 @@ export function ensureDefaultCommerceData(): void {
         reason: "Add coordinated takeaway packaging to the same print production run.",
       },
     ]) {
-      db.prepare(
-        `INSERT OR IGNORE INTO product_relationships (
+      await db
+        .prepare(
+          `INSERT INTO product_relationships (
           id, merchant_id, source_product_id, target_product_id,
           relationship_type, relevance_score, bundle_discount_bps,
           attach_quantity, metadata_json, created_at
-        ) VALUES (?, ?, ?, ?, 'complement', ?, ?, ?, ?, ?)`
-      ).run(
-        relationship.id,
-        DEFAULT_MERCHANT_ID,
-        DEFAULT_LABEL_PRODUCT_ID,
-        relationship.target,
-        relationship.relevance,
-        relationship.discountBps,
-        relationship.attachQuantity,
-        JSON.stringify({ reason: relationship.reason }),
-        now
-      );
+        ) VALUES (?, ?, ?, ?, 'complement', ?, ?, ?, ?, ?)
+        ON CONFLICT (id) DO NOTHING`
+        )
+        .run(
+          relationship.id,
+          DEFAULT_MERCHANT_ID,
+          DEFAULT_LABEL_PRODUCT_ID,
+          relationship.target,
+          relationship.relevance,
+          relationship.discountBps,
+          relationship.attachQuantity,
+          JSON.stringify({ reason: relationship.reason }),
+          now
+        );
     }
 
-    db.prepare(
-      `INSERT OR IGNORE INTO seller_policies (
+    await db
+      .prepare(
+        `INSERT INTO seller_policies (
         id, merchant_id, version, status, max_rounds, offer_ttl_seconds,
         concession_bps_per_round, max_discount_bps, min_bundle_margin_bps,
         deposit_bps, created_at
-      ) VALUES (?, ?, 1, 'active', 5, 1800, 750, 4500, 2500, 3000, ?)`
-    ).run("policy_abc_v1", DEFAULT_MERCHANT_ID, now);
-  })();
+      ) VALUES (?, ?, 1, 'active', 5, 1800, 750, 4500, 2500, 3000, ?)
+      ON CONFLICT (id) DO NOTHING`
+      )
+      .run("policy_abc_v1", DEFAULT_MERCHANT_ID, now);
+  });
 }
 
-export function getProduct(productId: string): CatalogProduct | null {
-  const row = db
+export async function getProduct(
+  productId: string
+): Promise<CatalogProduct | null> {
+  const row = await db
     .prepare(`SELECT * FROM merchant_products WHERE id = ? AND active = 1`)
-    .get(productId) as ProductRow | undefined;
+    .get<ProductRow>(productId);
   return row ? mapProduct(row) : null;
 }
 
-export function getProducts(
+export async function getProducts(
   productIds: string[],
   merchantId: string
-): CatalogProduct[] {
+): Promise<CatalogProduct[]> {
   if (productIds.length === 0) return [];
   const placeholders = productIds.map(() => "?").join(", ");
-  const rows = db
+  const rows = await db
     .prepare(
       `SELECT * FROM merchant_products
        WHERE merchant_id = ? AND active = 1 AND id IN (${placeholders})`
     )
-    .all(merchantId, ...productIds) as ProductRow[];
+    .all<ProductRow>(merchantId, ...productIds);
   return rows.map(mapProduct);
 }
 
-export function listProducts(merchantId: string): CatalogProduct[] {
-  return (
-    db
-      .prepare(
-        `SELECT * FROM merchant_products
+export async function listProducts(
+  merchantId: string
+): Promise<CatalogProduct[]> {
+  const rows = await db
+    .prepare(
+      `SELECT * FROM merchant_products
          WHERE merchant_id = ? AND active = 1 ORDER BY category, name`
-      )
-      .all(merchantId) as ProductRow[]
-  ).map(mapProduct);
+    )
+    .all<ProductRow>(merchantId);
+  return rows.map(mapProduct);
 }
 
-export function getActiveSellerPolicy(merchantId: string): SellerPolicy | null {
-  const row = db
+export async function getActiveSellerPolicy(
+  merchantId: string
+): Promise<SellerPolicy | null> {
+  const row = await db
     .prepare(
       `SELECT * FROM seller_policies
        WHERE merchant_id = ? AND status = 'active'
        ORDER BY version DESC LIMIT 1`
     )
-    .get(merchantId) as PolicyRow | undefined;
+    .get<PolicyRow>(merchantId);
   return row
     ? {
         id: row.id,
