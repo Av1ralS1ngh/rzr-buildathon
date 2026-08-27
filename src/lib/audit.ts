@@ -1,27 +1,29 @@
 import db from "./db";
 import { newId } from "./commitment";
 
-export function logAudit(
+export async function logAudit(
   rfqId: string,
   actor: string,
   action: string,
   detail: Record<string, unknown> = {}
 ) {
   const id = newId("aud");
-  db.prepare(
-    `INSERT INTO audit_events (id, rfq_id, actor, action, detail_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, rfqId, actor, action, JSON.stringify(detail), Date.now());
+  await db
+    .prepare(
+      `INSERT INTO audit_events (id, rfq_id, actor, action, detail_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, rfqId, actor, action, JSON.stringify(detail), Date.now());
 }
 
-export function getAuditEvents(rfqId: string) {
-  return db
+export async function getAuditEvents(rfqId: string) {
+  const rows = await db
     .prepare(
       `SELECT id, rfq_id, actor, action, detail_json, created_at
        FROM audit_events WHERE rfq_id = ? ORDER BY created_at ASC`
     )
-    .all(rfqId)
-    .map((row) => {
+    .all(rfqId);
+  return rows.map((row) => {
       const r = row as {
         id: string;
         rfq_id: string;

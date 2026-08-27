@@ -88,7 +88,7 @@ export async function createNegotiation(input: CreateNegotiationInput) {
       input.idempotencyKey,
       requestHash
     );
-    if (existing) return getNegotiation(existing);
+    if (existing) return await getNegotiation(existing);
   }
   if (new Set(input.requirements.map((item) => item.productId)).size !== input.requirements.length) {
     throw new Error("Each requested product may appear only once");
@@ -205,12 +205,12 @@ export async function createNegotiation(input: CreateNegotiationInput) {
         input.idempotencyKey,
         requestHash
       );
-      if (existing) return getNegotiation(existing);
+      if (existing) return await getNegotiation(existing);
     }
     throw error;
   }
 
-  return getNegotiation(sessionId);
+  return await getNegotiation(sessionId);
 }
 
 export async function counterNegotiation(
@@ -397,7 +397,7 @@ export async function acceptSellerOffer(
   const requestHash = fingerprint({ offerId, idempotencyKey });
   if (idempotencyKey) {
     const existing = await getIdempotentResource(scope, idempotencyKey, requestHash);
-    if (existing) return getNegotiation(existing);
+    if (existing) return await getNegotiation(existing);
   }
   try {
     await db.transaction(async () => {
@@ -450,11 +450,11 @@ export async function acceptSellerOffer(
   } catch (error) {
     if (idempotencyKey) {
       const existing = await getIdempotentResource(scope, idempotencyKey, requestHash);
-      if (existing) return getNegotiation(existing);
+      if (existing) return await getNegotiation(existing);
     }
     throw error;
   }
-  return getNegotiation(sessionId);
+  return await getNegotiation(sessionId);
 }
 
 export async function runAutonomousNegotiation(sessionId: string) {
@@ -496,7 +496,7 @@ export async function runAutonomousNegotiation(sessionId: string) {
           ? ["flexible_delivery"]
           : [],
     });
-    if (decision.outcome !== "countered") return getNegotiation(sessionId);
+    if (decision.outcome !== "countered") return await getNegotiation(sessionId);
   }
   throw new Error("Negotiation exceeded the safety iteration limit");
 }
@@ -677,7 +677,7 @@ export async function cancelNegotiation(sessionId: string) {
       .run(sessionId);
     await insertEvent(sessionId, "negotiation.cancelled", {});
   });
-  return getNegotiation(sessionId);
+  return await getNegotiation(sessionId);
 }
 
 async function mapOffer(row: OfferRow): Promise<NegotiationOffer> {

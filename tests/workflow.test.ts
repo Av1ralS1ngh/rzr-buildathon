@@ -13,8 +13,8 @@ import { POST as revise } from "@/app/api/rfq/[id]/revision/route";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-beforeEach(() => {
-  db.exec(`
+beforeEach(async () => {
+  await db.exec(`
     DELETE FROM webhook_events;
     DELETE FROM revisions;
     DELETE FROM commitments;

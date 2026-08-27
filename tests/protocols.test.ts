@@ -17,8 +17,8 @@ import {
   ensureDefaultCommerceData,
 } from "@/lib/commerce/catalog";
 
-beforeEach(() => {
-  db.exec(`
+beforeEach(async () => {
+  await db.exec(`
     DELETE FROM idempotency_keys;
     DELETE FROM commerce_orders;
     DELETE FROM mandate_artifacts;
@@ -35,7 +35,7 @@ beforeEach(() => {
     DELETE FROM merchant_products;
     DELETE FROM merchants;
   `);
-  ensureDefaultCommerceData();
+  await ensureDefaultCommerceData();
 });
 
 describe("agentic commerce protocol adapters", () => {

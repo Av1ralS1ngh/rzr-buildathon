@@ -24,8 +24,8 @@ import { createCommerceOrder } from "@/lib/commerce/commerce-order";
 import { PUT as confirmPayment } from "@/app/api/razorpay/webhook/route";
 import { NextRequest } from "next/server";
 
-beforeEach(() => {
-  db.exec(`
+beforeEach(async () => {
+  await db.exec(`
     DELETE FROM idempotency_keys;
     DELETE FROM commerce_orders;
     DELETE FROM mandate_artifacts;
@@ -42,17 +42,17 @@ beforeEach(() => {
     DELETE FROM merchant_products;
     DELETE FROM merchants;
   `);
-  ensureDefaultCommerceData();
+  await ensureDefaultCommerceData();
 });
 
 describe("deterministic negotiation engine", () => {
-  it("anchors at list price then finds an agreement above the private floor", () => {
-    const session = createExampleNegotiation();
+  it("anchors at list price then finds an agreement above the private floor", async () => {
+    const session = await createExampleNegotiation();
     const opening = session.offers[0];
     expect(opening.totalPaise).toBe(6_000_000);
     expect(opening.totalPaise).toBeGreaterThan(5_000_000);
 
-    const agreed = runAutonomousNegotiation(session.id);
+    const agreed = await runAutonomousNegotiation(session.id);
     expect(agreed.status).toBe("agreed");
     const accepted = agreed.offers.find(
       (offer) => offer.id === agreed.acceptedOfferId
@@ -62,16 +62,16 @@ describe("deterministic negotiation engine", () => {
     expect(agreed.currentRound).toBeLessThanOrEqual(5);
   });
 
-  it("never allows the buyer to accept an offer above its private mandate", () => {
-    const session = createExampleNegotiation();
-    expect(() => acceptSellerOffer(session.id, session.offers[0].id)).toThrow(
-      "outside the buyer's delegated mandate"
-    );
+  it("never allows the buyer to accept an offer above its private mandate", async () => {
+    const session = await createExampleNegotiation();
+    await expect(
+      acceptSellerOffer(session.id, session.offers[0].id)
+    ).rejects.toThrow("outside the buyer's delegated mandate");
   });
 
-  it("creates bounded seller counters without exposing reservation prices", () => {
-    const session = createExampleNegotiation();
-    const decision = counterNegotiation(session.id, {
+  it("creates bounded seller counters without exposing reservation prices", async () => {
+    const session = await createExampleNegotiation();
+    const decision = await counterNegotiation(session.id, {
       parentOfferId: session.offers[0].id,
       targetTotalPaise: 4_500_000,
       itemQuantities: { [DEFAULT_LABEL_PRODUCT_ID]: 1_000 },
@@ -85,16 +85,16 @@ describe("deterministic negotiation engine", () => {
     expect(JSON.stringify(decision)).not.toContain("cost");
   });
 
-  it("deduplicates session creation by idempotency key", () => {
-    const first = createExampleNegotiation("request-fixed-123");
-    const second = createExampleNegotiation("request-fixed-123");
+  it("deduplicates session creation by idempotency key", async () => {
+    const first = await createExampleNegotiation("request-fixed-123");
+    const second = await createExampleNegotiation("request-fixed-123");
     expect(second.id).toBe(first.id);
     expect(second.offers).toHaveLength(1);
   });
 
-  it("rejects idempotency key reuse with a different payload", () => {
-    createExampleNegotiation("request-conflict-123");
-    expect(() =>
+  it("rejects idempotency key reuse with a different payload", async () => {
+    await createExampleNegotiation("request-conflict-123");
+    await expect(
       createNegotiation({
         merchantId: DEFAULT_MERCHANT_ID,
         buyerAgentId: "different-buyer",
@@ -114,11 +114,11 @@ describe("deterministic negotiation engine", () => {
         idempotencyKey: "request-conflict-123",
         metadata: {},
       })
-    ).toThrow("different request payload");
+    ).rejects.toThrow("different request payload");
   });
 
-  it("creates a permissioned cross-sell mix that improves buyer utility and seller revenue", () => {
-    const session = createNegotiation({
+  it("creates a permissioned cross-sell mix that improves buyer utility and seller revenue", async () => {
+    const session = await createNegotiation({
       merchantId: DEFAULT_MERCHANT_ID,
       buyerAgentId: "bundle-buyer-agent",
       maxBudgetPaise: 5_000_000,
@@ -142,7 +142,7 @@ describe("deterministic negotiation engine", () => {
       metadata: {},
     });
 
-    const bundles = generateBundleOptions(session.id);
+    const bundles = await generateBundleOptions(session.id);
     const mix = bundles.find((bundle) => bundle.strategy === "mix_shift");
     expect(mix).toBeDefined();
     expect(mix?.totalPaise).toBeLessThanOrEqual(5_000_000);
@@ -160,30 +160,30 @@ describe("deterministic negotiation engine", () => {
       ])
     );
 
-    const offer = selectBundleOption(session.id, mix!.id);
+    const offer = await selectBundleOption(session.id, mix!.id);
     expect(offer.totalPaise).toBe(4_750_000);
-    const agreed = runAutonomousNegotiation(session.id);
+    const agreed = await runAutonomousNegotiation(session.id);
     expect(agreed.status).toBe("agreed");
     expect(agreed.acceptedOfferId).toBe(offer.id);
   });
 
-  it("does not generate cross-sells without explicit buyer permission", () => {
-    const session = createExampleNegotiation();
-    expect(generateBundleOptions(session.id)).toEqual([]);
+  it("does not generate cross-sells without explicit buyer permission", async () => {
+    const session = await createExampleNegotiation();
+    expect(await generateBundleOptions(session.id)).toEqual([]);
   });
 
-  it("creates and verifies an open-to-closed mandate chain", () => {
-    const session = createExampleNegotiation();
-    const openCheckout = getMandate(session.id, "checkout", "open");
+  it("creates and verifies an open-to-closed mandate chain", async () => {
+    const session = await createExampleNegotiation();
+    const openCheckout = await getMandate(session.id, "checkout", "open");
     expect(openCheckout.vct).toBe("mandate.checkout.open.1");
     expect(verifyMandate(openCheckout.compactJws!).valid).toBe(true);
-    expect(JSON.stringify(listMandates(session.id))).not.toContain(
+    expect(JSON.stringify(await listMandates(session.id))).not.toContain(
       "buyerMaxTotalPaise"
     );
 
-    const agreed = runAutonomousNegotiation(session.id);
-    const closedCheckout = getMandate(agreed.id, "checkout", "closed");
-    const closedPayment = getMandate(agreed.id, "payment", "closed");
+    const agreed = await runAutonomousNegotiation(session.id);
+    const closedCheckout = await getMandate(agreed.id, "checkout", "closed");
+    const closedPayment = await getMandate(agreed.id, "payment", "closed");
     expect(closedCheckout.parentMandateId).toBe(openCheckout.id);
     expect(closedPayment.payload).toMatchObject({
       payment_amount: { currency: "INR", amount: 1_500_000 },
@@ -197,8 +197,8 @@ describe("deterministic negotiation engine", () => {
   });
 
   it("binds the accepted deal and mandates to an idempotent payment order", async () => {
-    const session = createExampleNegotiation();
-    const agreed = runAutonomousNegotiation(session.id);
+    const session = await createExampleNegotiation();
+    const agreed = await runAutonomousNegotiation(session.id);
     const first = await createCommerceOrder(agreed.id);
     const repeated = await createCommerceOrder(agreed.id);
     expect(first.razorpayOrderId).toMatch(/^order_mock_/);
@@ -213,13 +213,13 @@ describe("deterministic negotiation engine", () => {
       })
     );
     expect(confirmation.status).toBe(200);
-    const receipt = getMandate(agreed.id, "payment_receipt", "receipt");
+    const receipt = await getMandate(agreed.id, "payment_receipt", "receipt");
     expect(receipt.vct).toBe("speclock.payment-receipt.1");
     expect(verifyMandate(receipt.compactJws!).valid).toBe(true);
   });
 });
 
-function createExampleNegotiation(idempotencyKey?: string) {
+async function createExampleNegotiation(idempotencyKey?: string) {
   return createNegotiation({
     merchantId: DEFAULT_MERCHANT_ID,
     buyerAgentId: "buyer-agent-test",
