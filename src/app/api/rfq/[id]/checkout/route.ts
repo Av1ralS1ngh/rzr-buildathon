@@ -110,7 +110,11 @@ export async function POST(
   });
 
   const existingCommitment = db
-    .prepare(`SELECT * FROM commitments WHERE quote_id = ?`)
+    .prepare(
+      `SELECT * FROM commitments
+       WHERE quote_id = ? AND status <> 'superseded'
+       ORDER BY created_at DESC LIMIT 1`
+    )
     .get(quote.id) as CommitmentRow | undefined;
   if (existingCommitment?.status === "locked") {
     return NextResponse.json(
@@ -166,7 +170,11 @@ export async function POST(
       );
     } catch {
       const concurrent = db
-        .prepare(`SELECT * FROM commitments WHERE quote_id = ?`)
+        .prepare(
+          `SELECT * FROM commitments
+           WHERE quote_id = ? AND status <> 'superseded'
+           ORDER BY created_at DESC LIMIT 1`
+        )
         .get(quote.id) as CommitmentRow | undefined;
       if (concurrent?.razorpay_order_id) {
         return NextResponse.json(checkoutResponse(concurrent, depositPaise));

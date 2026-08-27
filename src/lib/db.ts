@@ -102,7 +102,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_receipts_rfq_created ON capability_receipts(rfq_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_audit_rfq_created ON audit_events(rfq_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_revisions_rfq_created ON revisions(rfq_id, created_at DESC);
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_commitments_quote ON commitments(quote_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_commitments_order
     ON commitments(razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
 `);
@@ -132,5 +131,25 @@ for (const migration of migrations) {
 }
 
 db.prepare(`UPDATE rfqs SET updated_at = created_at WHERE updated_at IS NULL`).run();
+
+// Earlier builds could create more than one checkout commitment per quote.
+// Keep a locked commitment when one exists, otherwise keep the newest attempt.
+db.exec(`
+  WITH ranked AS (
+    SELECT id,
+      ROW_NUMBER() OVER (
+        PARTITION BY quote_id
+        ORDER BY CASE WHEN status = 'locked' THEN 0 ELSE 1 END, created_at DESC, id DESC
+      ) AS position
+    FROM commitments
+  )
+  UPDATE commitments
+  SET status = 'superseded'
+  WHERE id IN (SELECT id FROM ranked WHERE position > 1);
+
+  DROP INDEX IF EXISTS idx_commitments_quote;
+  CREATE UNIQUE INDEX idx_commitments_quote
+    ON commitments(quote_id) WHERE status <> 'superseded';
+`);
 
 export default db;
