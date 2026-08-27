@@ -323,6 +323,7 @@ db.exec(`
     scope TEXT NOT NULL,
     key TEXT NOT NULL,
     resource_id TEXT NOT NULL,
+    request_hash TEXT,
     response_json TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     PRIMARY KEY (scope, key)
@@ -374,6 +375,7 @@ const migrations = [
   `ALTER TABLE negotiation_private_terms ADD COLUMN allow_cross_sell INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE negotiation_private_terms ADD COLUMN cross_sell_budget_paise INTEGER`,
   `ALTER TABLE negotiation_private_terms ADD COLUMN allowed_cross_sell_json TEXT NOT NULL DEFAULT '[]'`,
+  `ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT`,
 ];
 
 for (const migration of migrations) {

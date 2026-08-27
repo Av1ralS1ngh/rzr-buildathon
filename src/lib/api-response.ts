@@ -10,7 +10,11 @@ export function apiError(error: unknown): NextResponse {
     );
   }
   const message = error instanceof Error ? error.message : "Request failed";
-  const status = /not found|unknown product|unavailable/i.test(message)
+  const status = /bearer token|unauthorized|authentication/i.test(message)
+    ? 401
+    : /required|invalid|unsupported/i.test(message)
+    ? 400
+    : /not found|unknown product|unavailable/i.test(message)
     ? 404
     : /expired/i.test(message)
       ? 410

@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   createProtocolNegotiation,
   toUcpCheckout,
-  UCP_VERSION,
 } from "@/lib/commerce/protocol-adapters";
 import { apiError } from "@/lib/api-response";
 
@@ -35,17 +34,14 @@ export async function POST(req: NextRequest) {
     if (!agent) {
       return NextResponse.json({ error: "UCP-Agent header is required" }, { status: 400 });
     }
+    const requestId = req.headers.get("request-id");
+    if (!requestId) {
+      return NextResponse.json({ error: "Request-Id header is required" }, { status: 400 });
+    }
     const idempotencyKey = req.headers.get("idempotency-key");
     if (!idempotencyKey) {
       return NextResponse.json(
         { error: "Idempotency-Key header is required" },
-        { status: 400 }
-      );
-    }
-    const version = req.headers.get("ucp-version") ?? UCP_VERSION;
-    if (version !== UCP_VERSION) {
-      return NextResponse.json(
-        { error: "Unsupported UCP version", supportedVersions: [UCP_VERSION] },
         { status: 400 }
       );
     }
@@ -63,7 +59,7 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json(toUcpCheckout(session.id), {
       status: 201,
-      headers: { "UCP-Version": UCP_VERSION, "Idempotency-Key": idempotencyKey },
+      headers: { "Idempotency-Key": idempotencyKey, "Request-Id": requestId },
     });
   } catch (error) {
     return apiError(error);

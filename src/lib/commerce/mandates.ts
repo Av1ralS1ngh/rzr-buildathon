@@ -37,10 +37,39 @@ export function createOpenMandates(sessionId: string): void {
     audience: context.merchantId,
     expiresAt: context.expiresAt,
     claims: {
-      intent: {
-        currency: "INR",
+      constraints: [
+        {
+          type: "checkout.allowed_merchants",
+          allowed: [{ id: context.merchantId, name: context.merchantName }],
+        },
+        {
+          type: "checkout.line_items",
+          items: context.requirements.map((requirement) => {
+            const product = context.products.find(
+              (item) => item.id === requirement.productId
+            );
+            return {
+              id: requirement.productId,
+              acceptable_items: [
+                {
+                  id: requirement.productId,
+                  title: product?.name ?? requirement.productId,
+                },
+              ],
+              quantity: requirement.targetQuantity,
+            };
+          }),
+        },
+      ],
+      cnf: { jwk: publicJwkForIssuer(context.buyerAgentId) },
+      negotiation: {
         deliveryDate: context.deliveryDate,
-        requirements: context.requirements,
+        quantityRanges: context.requirements.map((requirement) => ({
+          productId: requirement.productId,
+          minimum: requirement.minQuantity,
+          target: requirement.targetQuantity,
+          maximum: requirement.maxQuantity,
+        })),
         crossSell: {
           allowed: context.allowCrossSell,
           allowedProductIds: context.allowedCrossSellProductIds,
@@ -59,13 +88,29 @@ export function createOpenMandates(sessionId: string): void {
     expiresAt: context.expiresAt,
     parentMandateId: checkout.id,
     claims: {
-      constraints: {
-        currency: "INR",
-        amountRange: { min: 0, max: context.buyerMaxTotalPaise },
+      constraints: [
+        {
+          type: "payment.allowed_payees",
+          allowed: [{ id: context.merchantId, name: context.merchantName }],
+        },
+        {
+          type: "payment.amount_range",
+          currency: "INR",
+          min: 0,
+          max: context.buyerMaxTotalPaise,
+        },
+        {
+          type: "payment.allowed_payment_instruments",
+          allowed: [{ id: "razorpay_checkout", type: "CARD_OR_UPI" }],
+        },
+        {
+          type: "payment.reference",
+          conditional_transaction_id: checkout.payloadHash,
+        },
+      ],
+      cnf: { jwk: publicJwkForIssuer(context.buyerAgentId) },
+      negotiation: {
         maximumDeposit: context.buyerMaxDepositPaise,
-        allowedPayees: [context.merchantId],
-        allowedPaymentHandlers: ["razorpay"],
-        reference: checkout.payloadHash,
       },
     },
   });
@@ -103,16 +148,41 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
   if (getMandateRow(sessionId, "checkout", "closed")) return;
   const session = db
     .prepare(
-      `SELECT merchant_id, buyer_agent_id, expires_at
-       FROM negotiation_sessions WHERE id = ? AND status = 'agreed'`
+      `SELECT s.merchant_id, m.name AS merchant_name,
+              s.buyer_agent_id, s.expires_at
+       FROM negotiation_sessions s
+       JOIN merchants m ON m.id = s.merchant_id
+       WHERE s.id = ? AND s.status = 'agreed'`
     )
     .get(sessionId) as
-    | { merchant_id: string; buyer_agent_id: string; expires_at: number }
+    | {
+        merchant_id: string;
+        merchant_name: string;
+        buyer_agent_id: string;
+        expires_at: number;
+      }
     | undefined;
   if (!session) throw new Error("Agreed negotiation not found for mandate closure");
   const offer = getOfferForMandate(sessionId, acceptedOfferId);
   const openCheckout = requireMandate(sessionId, "checkout", "open");
   const openPayment = requireMandate(sessionId, "payment", "open");
+  const checkoutJwt = signCheckoutPayload({
+    issuer: session.merchant_id,
+    audience: session.buyer_agent_id,
+    sessionId,
+    expiresAt: Math.min(session.expires_at, offer.expiresAt),
+    checkout: {
+      offerId: acceptedOfferId,
+      currency: "INR",
+      items: offer.items,
+      totalPaise: offer.totalPaise,
+      depositBps: offer.depositBps,
+      depositPaise: offer.depositPaise,
+      deliveryDate: offer.deliveryDate,
+      openMandateHash: openCheckout.payload_hash,
+    },
+  });
+  const checkoutHash = sha256(checkoutJwt);
 
   const checkout = createMandate({
     sessionId,
@@ -125,14 +195,10 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
     expiresAt: Math.min(session.expires_at, offer.expiresAt),
     parentMandateId: openCheckout.id,
     claims: {
-      checkout: {
+      checkout_jwt: checkoutJwt,
+      checkout_hash: checkoutHash,
+      negotiation: {
         offerId: acceptedOfferId,
-        currency: "INR",
-        items: offer.items,
-        totalPaise: offer.totalPaise,
-        depositBps: offer.depositBps,
-        depositPaise: offer.depositPaise,
-        deliveryDate: offer.deliveryDate,
         openMandateHash: openCheckout.payload_hash,
       },
     },
@@ -148,12 +214,18 @@ export function createClosedMandates(sessionId: string, acceptedOfferId: string)
     expiresAt: Math.min(session.expires_at, offer.expiresAt),
     parentMandateId: openPayment.id,
     claims: {
-      transactionId: sha256(checkout.compactJws!),
-      payee: { id: session.merchant_id },
-      paymentAmount: { currency: "INR", amount: offer.depositPaise },
-      paymentInstrument: { handler: "razorpay", mode: "delegated_checkout" },
-      checkoutMandateHash: checkout.payloadHash,
-      openPaymentMandateHash: openPayment.payload_hash,
+      transaction_id: checkoutHash,
+      payee: { id: session.merchant_id, name: session.merchant_name },
+      payment_amount: { currency: "INR", amount: offer.depositPaise },
+      payment_instrument: {
+        id: "razorpay_checkout",
+        type: "CARD_OR_UPI",
+        description: "Razorpay Standard Checkout",
+      },
+      negotiation: {
+        checkoutMandateHash: checkout.payloadHash,
+        openPaymentMandateHash: openPayment.payload_hash,
+      },
     },
   });
 }
@@ -344,11 +416,12 @@ function createMandate(input: {
 
 function signPayload(
   payload: Record<string, unknown>,
-  keys: ReturnType<typeof keysForIssuer>
+  keys: ReturnType<typeof keysForIssuer>,
+  type = "dc+sd-jwt"
 ) {
   const header = {
     alg: "ES256",
-    typ: "dc+sd-jwt",
+    typ: type,
     kid: keys.keyId,
   };
   const signingInput = `${toBase64Url(
@@ -359,6 +432,29 @@ function signPayload(
     dsaEncoding: "ieee-p1363",
   });
   return `${signingInput}.${toBase64Url(signature)}`;
+}
+
+function signCheckoutPayload(input: {
+  issuer: string;
+  audience: string;
+  sessionId: string;
+  expiresAt: number;
+  checkout: Record<string, unknown>;
+}) {
+  const now = Date.now();
+  return signPayload(
+    {
+      iss: input.issuer,
+      sub: input.sessionId,
+      aud: input.audience,
+      iat: Math.floor(now / 1000),
+      exp: Math.floor(input.expiresAt / 1000),
+      jti: newId("checkout"),
+      checkout: input.checkout,
+    },
+    keysForIssuer(input.issuer),
+    "JWT"
+  );
 }
 
 function keysForIssuer(issuer: string) {
@@ -408,17 +504,20 @@ function mandateSigningSecret() {
 function getMandateContext(sessionId: string) {
   const session = db
     .prepare(
-      `SELECT s.merchant_id, s.buyer_agent_id, s.seller_policy_id,
+      `SELECT s.merchant_id, m.name AS merchant_name,
+              s.buyer_agent_id, s.seller_policy_id,
               s.delivery_date, s.expires_at, t.buyer_max_total_paise,
               t.buyer_max_deposit_paise, t.allow_cross_sell,
               t.allowed_cross_sell_json
        FROM negotiation_sessions s
+       JOIN merchants m ON m.id = s.merchant_id
        JOIN negotiation_private_terms t ON t.session_id = s.id
        WHERE s.id = ?`
     )
     .get(sessionId) as
     | {
         merchant_id: string;
+        merchant_name: string;
         buyer_agent_id: string;
         seller_policy_id: string;
         delivery_date: string | null;
@@ -443,7 +542,7 @@ function getMandateContext(sessionId: string) {
   if (!policy) throw new Error("Seller policy not found");
   const products = db
     .prepare(
-      `SELECT DISTINCT p.id, p.cost_paise, p.floor_price_paise,
+      `SELECT DISTINCT p.id, p.name, p.cost_paise, p.floor_price_paise,
               p.target_price_paise, p.list_price_paise
        FROM merchant_products p
        JOIN negotiation_requirements r ON r.product_id = p.id
@@ -452,6 +551,7 @@ function getMandateContext(sessionId: string) {
     .all(sessionId) as Array<Record<string, unknown>>;
   return {
     merchantId: session.merchant_id,
+    merchantName: session.merchant_name,
     buyerAgentId: session.buyer_agent_id,
     deliveryDate: session.delivery_date,
     expiresAt: session.expires_at,
@@ -479,6 +579,7 @@ function getMandateContext(sessionId: string) {
     },
     products: products.map((product) => ({
       id: product.id,
+      name: product.name,
       costPaise: product.cost_paise,
       floorPricePaise: product.floor_price_paise,
       targetPricePaise: product.target_price_paise,

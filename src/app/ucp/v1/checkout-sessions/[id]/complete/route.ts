@@ -5,7 +5,6 @@ import { createCommerceOrder } from "@/lib/commerce/commerce-order";
 import { verifyMandate } from "@/lib/commerce/mandates";
 import {
   toUcpCheckout,
-  UCP_VERSION,
 } from "@/lib/commerce/protocol-adapters";
 import { apiError } from "@/lib/api-response";
 
@@ -25,6 +24,13 @@ export async function POST(
 ) {
   try {
     const { id } = await ctx.params;
+    if (!req.headers.get("ucp-agent")) {
+      return NextResponse.json({ error: "UCP-Agent header is required" }, { status: 400 });
+    }
+    const requestId = req.headers.get("request-id");
+    if (!requestId) {
+      return NextResponse.json({ error: "Request-Id header is required" }, { status: 400 });
+    }
     const idempotencyKey = req.headers.get("idempotency-key");
     if (!idempotencyKey) {
       return NextResponse.json(
@@ -68,8 +74,8 @@ export async function POST(
       {
         status: order.status === "paid" ? 200 : 202,
         headers: {
-          "UCP-Version": UCP_VERSION,
           "Idempotency-Key": idempotencyKey,
+          "Request-Id": requestId,
         },
       }
     );

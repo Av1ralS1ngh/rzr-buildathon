@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 import db from "@/lib/db";
 import { GET as getUcpProfile } from "@/app/.well-known/ucp/route";
 import { GET as getAgentCard } from "@/app/.well-known/agent-card.json/route";
+import { GET as getAcpDiscovery } from "@/app/.well-known/acp.json/route";
 import { POST as sendA2aMessage } from "@/app/a2a/v1/message:send/route";
 import { POST as createUcpCheckout } from "@/app/ucp/v1/checkout-sessions/route";
 import { POST as createAcpCheckout } from "@/app/checkout_sessions/route";
@@ -58,6 +59,13 @@ describe("agentic commerce protocol adapters", () => {
     expect(card.skills.map((skill: { id: string }) => skill.id)).toContain(
       "negotiate-custom-manufacturing"
     );
+
+    const acp = await (await getAcpDiscovery()).json();
+    expect(acp.protocol).toMatchObject({
+      name: "acp",
+      version: ACP_VERSION,
+    });
+    expect(acp.capabilities.services).toEqual(["checkout", "orders"]);
   });
 
   it("creates the same negotiation domain through UCP", async () => {
@@ -67,7 +75,7 @@ describe("agentic commerce protocol adapters", () => {
         headers: {
           "Content-Type": "application/json",
           "UCP-Agent": 'profile="https://buyer.example/.well-known/ucp"',
-          "UCP-Version": UCP_VERSION,
+          "Request-Id": "request-ucp-invalid-1",
           "Idempotency-Key": "ucp-create-fixed-1",
         },
         body: JSON.stringify({
@@ -91,7 +99,7 @@ describe("agentic commerce protocol adapters", () => {
         headers: {
           "Content-Type": "application/json",
           "UCP-Agent": 'profile="https://buyer.example/.well-known/ucp"',
-          "UCP-Version": UCP_VERSION,
+          "Request-Id": "request-ucp-valid-1",
           "Idempotency-Key": "ucp-create-fixed-2",
         },
         body: JSON.stringify({
@@ -185,5 +193,10 @@ describe("agentic commerce protocol adapters", () => {
     expect(checkout.capabilities.extensions[0].name).toContain(
       "in.speclock.negotiation"
     );
+    expect(checkout.capabilities.payment.handlers[0]).toMatchObject({
+      id: "razorpay_inr",
+      requires_delegate_payment: false,
+      psp: "razorpay",
+    });
   });
 });

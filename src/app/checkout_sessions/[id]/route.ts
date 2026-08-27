@@ -16,6 +16,7 @@ import {
   toAcpCheckout,
 } from "@/lib/commerce/protocol-adapters";
 import { apiError } from "@/lib/api-response";
+import { isAcpAuthorized } from "@/lib/commerce/protocol-auth";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,7 @@ export async function GET(
 ) {
   try {
     validateVersion(req);
+    requireAuthorization(req);
     const { id } = await ctx.params;
     return acpResponse(toAcpCheckout(id));
   } catch (error) {
@@ -55,6 +57,7 @@ export async function POST(
 ) {
   try {
     validateVersion(req);
+    requireAuthorization(req);
     const { id } = await ctx.params;
     const body = updateSchema.parse(await req.json());
     const action = body.metadata.speclock_action;
@@ -101,6 +104,10 @@ function validateVersion(req: NextRequest) {
   if (version !== ACP_VERSION) {
     throw new Error(`API-Version must be ${ACP_VERSION}`);
   }
+}
+
+function requireAuthorization(req: NextRequest) {
+  if (!isAcpAuthorized(req)) throw new Error("Invalid bearer token");
 }
 
 function acpResponse(body: unknown) {

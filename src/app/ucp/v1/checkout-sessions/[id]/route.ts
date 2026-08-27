@@ -15,7 +15,6 @@ import {
 } from "@/lib/commerce/types";
 import {
   toUcpCheckout,
-  UCP_VERSION,
 } from "@/lib/commerce/protocol-adapters";
 import { apiError } from "@/lib/api-response";
 
@@ -43,10 +42,11 @@ const updateSchema = z
   .passthrough();
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    requireRequestId(req);
     const { id } = await ctx.params;
     return ucpResponse(toUcpCheckout(id));
   } catch (error) {
@@ -59,6 +59,7 @@ export async function PUT(
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    requireRequestId(req);
     const { id } = await ctx.params;
     const body = updateSchema.parse(await req.json());
     const command = body.extensions["in.speclock.negotiation"];
@@ -98,7 +99,14 @@ export async function PUT(
 }
 
 function ucpResponse(body: unknown) {
-  return NextResponse.json(body, {
-    headers: { "UCP-Version": UCP_VERSION },
-  });
+  return NextResponse.json(body);
+}
+
+function requireRequestId(req: NextRequest) {
+  if (!req.headers.get("ucp-agent")) {
+    throw new Error("UCP-Agent header is required");
+  }
+  if (!req.headers.get("request-id")) {
+    throw new Error("Request-Id header is required");
+  }
 }

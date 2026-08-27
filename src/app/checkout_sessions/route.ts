@@ -6,6 +6,7 @@ import {
   toAcpCheckout,
 } from "@/lib/commerce/protocol-adapters";
 import { apiError } from "@/lib/api-response";
+import { isAcpAuthorized } from "@/lib/commerce/protocol-auth";
 
 export const runtime = "nodejs";
 
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    if (!authorized(req)) {
+    if (!isAcpAuthorized(req)) {
       return NextResponse.json(
         { type: "authentication_error", message: "Invalid bearer token" },
         { status: 401 }
@@ -89,9 +90,4 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return apiError(error);
   }
-}
-
-function authorized(req: NextRequest) {
-  const expected = process.env.ACP_API_KEY;
-  return !expected || req.headers.get("authorization") === `Bearer ${expected}`;
 }

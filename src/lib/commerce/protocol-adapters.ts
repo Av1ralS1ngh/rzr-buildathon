@@ -146,6 +146,28 @@ export function toAcpCheckout(sessionId: string) {
       },
     ],
     capabilities: {
+      payment: {
+        handlers: [
+          {
+            id: "razorpay_inr",
+            name: "in.speclock.razorpay_redirect",
+            display_name: "Razorpay",
+            version: "2026-08-27",
+            spec: `${appUrl()}/docs/razorpay-handler`,
+            requires_delegate_payment: false,
+            requires_pci_compliance: false,
+            psp: "razorpay",
+            config_schema: `${appUrl()}/api/protocols/schemas/razorpay-handler`,
+            instrument_schemas: [
+              `${appUrl()}/api/protocols/schemas/razorpay-instrument`,
+            ],
+            config: {
+              currency: "inr",
+              interaction: "redirect",
+            },
+          },
+        ],
+      },
       extensions: [
         {
           name: "in.speclock.negotiation@2026-08-27",

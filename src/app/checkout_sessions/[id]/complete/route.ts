@@ -6,6 +6,7 @@ import {
   toAcpCheckout,
 } from "@/lib/commerce/protocol-adapters";
 import { apiError } from "@/lib/api-response";
+import { isAcpAuthorized } from "@/lib/commerce/protocol-auth";
 
 export const runtime = "nodejs";
 
@@ -13,11 +14,20 @@ const completeSchema = z
   .object({
     payment_data: z
       .object({
-        provider: z.string().optional(),
-        type: z.string().optional(),
-        token: z.string().min(1),
+        handler_id: z.string().min(1),
+        instrument: z
+          .object({
+            type: z.string().min(1),
+            credential: z
+              .object({
+                type: z.string().min(1),
+                token: z.string().min(1),
+              })
+              .strict(),
+          })
+          .strict(),
       })
-      .passthrough(),
+      .strict(),
   })
   .passthrough();
 
@@ -32,6 +42,12 @@ export async function POST(
         { status: 400 }
       );
     }
+    if (!isAcpAuthorized(req)) {
+      return NextResponse.json(
+        { type: "authentication_error", message: "Invalid bearer token" },
+        { status: 401 }
+      );
+    }
     if (!req.headers.get("idempotency-key")) {
       return NextResponse.json(
         {
@@ -43,16 +59,26 @@ export async function POST(
       );
     }
     const input = completeSchema.parse(await req.json());
-    if (
-      input.payment_data.provider &&
-      input.payment_data.provider !== "razorpay"
-    ) {
+    if (input.payment_data.handler_id !== "razorpay_inr") {
       return NextResponse.json(
         {
           type: "invalid_request",
           code: "unsupported_payment_provider",
           message:
-            "Stripe Shared Payment Tokens cannot be charged through Razorpay. Use the Razorpay handler.",
+            "Stripe Shared Payment Tokens cannot be charged through Razorpay. Use handler_id 'razorpay_inr'.",
+        },
+        { status: 422 }
+      );
+    }
+    if (
+      input.payment_data.instrument.type !== "redirect" ||
+      input.payment_data.instrument.credential.type !== "checkout_session"
+    ) {
+      return NextResponse.json(
+        {
+          type: "invalid_request",
+          code: "unsupported_payment_instrument",
+          message: "The Razorpay handler requires a redirect checkout instrument.",
         },
         { status: 422 }
       );

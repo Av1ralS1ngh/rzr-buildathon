@@ -45,6 +45,30 @@ const schemas: Record<string, Record<string, unknown>> = {
       currency: { const: "INR" },
     },
   },
+  "razorpay-instrument": {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "https://speclock.example/schemas/razorpay-instrument.json",
+    title: "Razorpay Redirect Instrument",
+    type: "object",
+    additionalProperties: false,
+    required: ["type", "credential"],
+    properties: {
+      type: { const: "redirect" },
+      credential: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "token"],
+        properties: {
+          type: { const: "checkout_session" },
+          token: {
+            type: "string",
+            description:
+              "Opaque client correlation token; never a card credential.",
+          },
+        },
+      },
+    },
+  },
 };
 
 export async function GET(

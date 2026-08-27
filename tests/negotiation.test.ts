@@ -92,6 +92,31 @@ describe("deterministic negotiation engine", () => {
     expect(second.offers).toHaveLength(1);
   });
 
+  it("rejects idempotency key reuse with a different payload", () => {
+    createExampleNegotiation("request-conflict-123");
+    expect(() =>
+      createNegotiation({
+        merchantId: DEFAULT_MERCHANT_ID,
+        buyerAgentId: "different-buyer",
+        maxBudgetPaise: 4_900_000,
+        requirements: [
+          {
+            productId: DEFAULT_LABEL_PRODUCT_ID,
+            minQuantity: 1_000,
+            targetQuantity: 1_000,
+            maxQuantity: 1_000,
+            required: true,
+            substitutionsAllowed: false,
+            priority: 100,
+          },
+        ],
+        crossSellPolicy: { allowed: false },
+        idempotencyKey: "request-conflict-123",
+        metadata: {},
+      })
+    ).toThrow("different request payload");
+  });
+
   it("creates a permissioned cross-sell mix that improves buyer utility and seller revenue", () => {
     const session = createNegotiation({
       merchantId: DEFAULT_MERCHANT_ID,
@@ -161,7 +186,12 @@ describe("deterministic negotiation engine", () => {
     const closedPayment = getMandate(agreed.id, "payment", "closed");
     expect(closedCheckout.parentMandateId).toBe(openCheckout.id);
     expect(closedPayment.payload).toMatchObject({
-      paymentAmount: { currency: "INR", amount: 1_500_000 },
+      payment_amount: { currency: "INR", amount: 1_500_000 },
+      transaction_id: expect.any(String),
+    });
+    expect(closedCheckout.payload).toMatchObject({
+      checkout_jwt: expect.any(String),
+      checkout_hash: closedPayment.payload.transaction_id,
     });
     expect(verifyMandate(closedPayment.compactJws!).valid).toBe(true);
   });

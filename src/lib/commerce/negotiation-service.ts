@@ -1,4 +1,5 @@
 import db from "../db";
+import crypto from "crypto";
 import { newId } from "../commitment";
 import {
   ensureDefaultCommerceData,
@@ -80,8 +81,13 @@ type OfferItemRow = {
 
 export function createNegotiation(input: CreateNegotiationInput) {
   ensureDefaultCommerceData();
+  const requestHash = fingerprint(input);
   if (input.idempotencyKey) {
-    const existing = getIdempotentResource("negotiation.create", input.idempotencyKey);
+    const existing = getIdempotentResource(
+      "negotiation.create",
+      input.idempotencyKey,
+      requestHash
+    );
     if (existing) return getNegotiation(existing);
   }
   if (new Set(input.requirements.map((item) => item.productId)).size !== input.requirements.length) {
@@ -180,7 +186,9 @@ export function createNegotiation(input: CreateNegotiationInput) {
         insertIdempotency(
           "negotiation.create",
           input.idempotencyKey,
-          sessionId
+          sessionId,
+          {},
+          requestHash
         );
       }
     })();
@@ -188,7 +196,8 @@ export function createNegotiation(input: CreateNegotiationInput) {
     if (input.idempotencyKey) {
       const existing = getIdempotentResource(
         "negotiation.create",
-        input.idempotencyKey
+        input.idempotencyKey,
+        requestHash
       );
       if (existing) return getNegotiation(existing);
     }
@@ -202,10 +211,12 @@ export function counterNegotiation(
   sessionId: string,
   input: CounterOfferInput
 ): NegotiationDecision {
+  const requestHash = fingerprint(input);
   if (input.idempotencyKey) {
     const existing = getIdempotentResponse(
       `negotiation.counter:${sessionId}`,
-      input.idempotencyKey
+      input.idempotencyKey,
+      requestHash
     );
     if (existing) return existing as NegotiationDecision;
   }
@@ -356,7 +367,8 @@ export function counterNegotiation(
         `negotiation.counter:${sessionId}`,
         input.idempotencyKey,
         result.outcome === "countered" ? result.offer.id : sessionId,
-        result
+        result,
+        requestHash
       );
     }
   })();
@@ -370,8 +382,9 @@ export function acceptSellerOffer(
   idempotencyKey?: string
 ) {
   const scope = `negotiation.accept:${sessionId}`;
+  const requestHash = fingerprint({ offerId, idempotencyKey });
   if (idempotencyKey) {
-    const existing = getIdempotentResource(scope, idempotencyKey);
+    const existing = getIdempotentResource(scope, idempotencyKey, requestHash);
     if (existing) return getNegotiation(existing);
   }
   try {
@@ -417,12 +430,12 @@ export function acceptSellerOffer(
     });
       createClosedMandates(sessionId, offerId);
       if (idempotencyKey) {
-        insertIdempotency(scope, idempotencyKey, sessionId);
+        insertIdempotency(scope, idempotencyKey, sessionId, {}, requestHash);
       }
     })();
   } catch (error) {
     if (idempotencyKey) {
-      const existing = getIdempotentResource(scope, idempotencyKey);
+      const existing = getIdempotentResource(scope, idempotencyKey, requestHash);
       if (existing) return getNegotiation(existing);
     }
     throw error;
@@ -886,25 +899,75 @@ function insertIdempotency(
   scope: string,
   key: string,
   resourceId: string,
-  response: unknown = {}
+  response: unknown = {},
+  requestHash?: string
 ) {
   db.prepare(
     `INSERT INTO idempotency_keys (
-      scope, key, resource_id, response_json, created_at
-    ) VALUES (?, ?, ?, ?, ?)`
-  ).run(scope, key, resourceId, JSON.stringify(response), Date.now());
+      scope, key, resource_id, request_hash, response_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(
+    scope,
+    key,
+    resourceId,
+    requestHash ?? null,
+    JSON.stringify(response),
+    Date.now()
+  );
 }
 
-function getIdempotentResource(scope: string, key: string): string | null {
+function getIdempotentResource(
+  scope: string,
+  key: string,
+  requestHash?: string
+): string | null {
   const row = db
-    .prepare(`SELECT resource_id FROM idempotency_keys WHERE scope = ? AND key = ?`)
-    .get(scope, key) as { resource_id: string } | undefined;
+    .prepare(
+      `SELECT resource_id, request_hash
+       FROM idempotency_keys WHERE scope = ? AND key = ?`
+    )
+    .get(scope, key) as
+    | { resource_id: string; request_hash: string | null }
+    | undefined;
+  assertIdempotencyPayload(row?.request_hash, requestHash);
   return row?.resource_id ?? null;
 }
 
-function getIdempotentResponse(scope: string, key: string): unknown | null {
+function getIdempotentResponse(
+  scope: string,
+  key: string,
+  requestHash?: string
+): unknown | null {
   const row = db
-    .prepare(`SELECT response_json FROM idempotency_keys WHERE scope = ? AND key = ?`)
-    .get(scope, key) as { response_json: string } | undefined;
+    .prepare(
+      `SELECT response_json, request_hash
+       FROM idempotency_keys WHERE scope = ? AND key = ?`
+    )
+    .get(scope, key) as
+    | { response_json: string; request_hash: string | null }
+    | undefined;
+  assertIdempotencyPayload(row?.request_hash, requestHash);
   return row ? (JSON.parse(row.response_json) as unknown) : null;
+}
+
+function assertIdempotencyPayload(
+  storedHash: string | null | undefined,
+  requestHash: string | undefined
+) {
+  if (storedHash && requestHash && storedHash !== requestHash) {
+    throw new Error(
+      "Idempotency-Key has already been used with a different request payload"
+    );
+  }
+}
+
+function fingerprint(value: unknown) {
+  return crypto
+    .createHash("sha256")
+    .update(
+      JSON.stringify(value, (key, item) =>
+        key === "idempotencyKey" ? undefined : item
+      )
+    )
+    .digest("hex");
 }
