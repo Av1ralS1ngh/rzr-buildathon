@@ -55,6 +55,8 @@ Open http://localhost:43123
 
 | Variable | Required | Purpose |
 |---|---|---|
+| `DATABASE_URL` | Production | Neon pooled Postgres connection string |
+| `DATABASE_URL_UNPOOLED` | Migrations | Neon direct connection string |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Optional* | Test Orders + Checkout |
 | `RAZORPAY_WEBHOOK_SECRET` | Optional | Webhook HMAC verification |
 | `ALLOW_MOCK_PAYMENTS` | Optional | Must be `true` to permit mock capture in production |
