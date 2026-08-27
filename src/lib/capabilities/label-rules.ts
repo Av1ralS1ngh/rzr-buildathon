@@ -27,25 +27,14 @@ export function runLabelRulesCheck(
     requiredFields.push("ingredient_list");
   }
 
-  const defaultArtwork = {
-    net_quantity: false,
-    manufacturer_name: false,
-    manufacturer_address: false,
-    fssai_logo: false,
-    fssai_license_number: false,
-    mrp: false,
-    batch_or_use_by: false,
-    vegetarian_non_veg_symbol: false,
-    ingredient_list: false,
-    ...artworkFields,
-  };
-
-  const missingOnArtwork = requiredFields.filter(
-    (f) => !defaultArtwork[f as keyof typeof defaultArtwork]
-  );
+  const suppliedArtworkFields = Object.keys(artworkFields).length > 0;
+  const missingOnArtwork = suppliedArtworkFields
+    ? requiredFields.filter((field) => artworkFields[field] !== true)
+    : [];
 
   let status: "pass" | "warn" | "fail" = "pass";
-  if (missingOnArtwork.length > 3) status = "fail";
+  if (!suppliedArtworkFields) status = "warn";
+  else if (missingOnArtwork.length > 3) status = "fail";
   else if (missingOnArtwork.length > 0) status = "warn";
 
   return {
@@ -57,6 +46,12 @@ export function runLabelRulesCheck(
       productType: spec.productType,
       requiredFields,
       missingOnArtwork,
+      verificationScope: suppliedArtworkFields
+        ? "submitted_artwork_fields"
+        : "requirements_only",
+      message: suppliedArtworkFields
+        ? undefined
+        : "Artwork fields were not supplied; requirements were generated but content was not certified.",
       disclaimer:
         "Rules-based checklist — not a statutory compliance certificate.",
     },

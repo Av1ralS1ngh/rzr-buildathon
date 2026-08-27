@@ -3,11 +3,13 @@ export type RfqStatus =
   | "needs_clarification"
   | "orchestrating"
   | "quoted"
+  | "awaiting_approval"
   | "payment_pending"
   | "deposit_paid"
   | "locked"
   | "revision_proposed"
-  | "blocked";
+  | "blocked"
+  | "cancelled";
 
 export interface LabelSpec {
   productType: string;
@@ -48,6 +50,13 @@ export interface CapabilityReceipt {
   payload: Record<string, unknown>;
   paymentMode: "x402" | "internal" | "demo";
   paidAt: string;
+}
+
+export interface ArtworkMetadata {
+  filename: string;
+  mimeType: "application/pdf" | "image/png" | "image/jpeg";
+  sizeBytes: number;
+  hash: string;
 }
 
 export interface AuditEvent {

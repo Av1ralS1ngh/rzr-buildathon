@@ -6,112 +6,204 @@ import {
   isRazorpayMockMode,
 } from "@/lib/razorpay";
 import { logAudit } from "@/lib/audit";
+import { clientPaymentConfirmationSchema, validationMessage } from "@/lib/validation";
+import crypto from "crypto";
+import type { CommitmentRow } from "@/lib/db-types";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-razorpay-signature") ?? "";
-  const eventId = req.headers.get("x-razorpay-event-id") ?? "";
-
-  if (!isRazorpayMockMode()) {
+  let mockMode: boolean;
+  try {
+    mockMode = isRazorpayMockMode();
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Payment configuration error" },
+      { status: 500 }
+    );
+  }
+  if (!mockMode) {
     if (!verifyWebhookSignature(rawBody, signature)) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
   }
 
-  if (eventId) {
-    const seen = db
-      .prepare(`SELECT event_id FROM webhook_events WHERE event_id = ?`)
-      .get(eventId);
-    if (seen) {
-      logAudit("system", "webhook", "duplicate_ignored", { eventId });
-      return NextResponse.json({ ok: true, duplicate: true });
-    }
-    db.prepare(`INSERT INTO webhook_events (event_id, processed_at) VALUES (?, ?)`).run(
-      eventId,
-      Date.now()
-    );
+  let payload: Record<string, unknown>;
+  try {
+    payload = JSON.parse(rawBody) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload" }, { status: 400 });
   }
 
-  const payload = JSON.parse(rawBody);
-  const event = payload.event as string;
+  const event = typeof payload.event === "string" ? payload.event : "unknown";
+  const eventId =
+    req.headers.get("x-razorpay-event-id") ??
+    (typeof payload.id === "string" ? payload.id : null) ??
+    crypto.createHash("sha256").update(rawBody).digest("hex");
+  const seen = db
+    .prepare(`SELECT event_id FROM webhook_events WHERE event_id = ?`)
+    .get(eventId);
+  if (seen) return NextResponse.json({ ok: true, duplicate: true });
 
+  let result: PaymentResult = { ok: true, ignored: true };
   if (event === "payment.captured" || event === "order.paid") {
-    const payment = payload.payload?.payment?.entity;
-    const orderId = payment?.order_id as string | undefined;
-    if (orderId) {
-      markOrderPaid(orderId, payment?.id as string | undefined);
+    const data = extractPayment(payload, event);
+    if (!data.orderId) {
+      return NextResponse.json({ error: "Webhook is missing an order id" }, { status: 400 });
     }
+    result = markOrderPaid(data.orderId, data.paymentId, data.amountPaise, data.currency);
   }
 
-  return NextResponse.json({ ok: true });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status ?? 409 });
+  }
+  db.prepare(
+    `INSERT INTO webhook_events (event_id, event_type, processed_at) VALUES (?, ?, ?)`
+  ).run(eventId, event, Date.now());
+  return NextResponse.json({ ok: true, ignored: result.ignored });
 }
 
 export async function PUT(req: NextRequest) {
-  /** Client-side payment confirmation (test mode + mock). */
-  const body = await req.json();
-  const { orderId, paymentId, signature, rfqId } = body;
+  const parsed = clientPaymentConfirmationSchema.safeParse(
+    await req.json().catch(() => null)
+  );
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: validationMessage(parsed.error) },
+      { status: 400 }
+    );
+  }
+  const { orderId, paymentId, signature } = parsed.data;
+  const mockMode = isRazorpayMockMode();
 
-  if (!isRazorpayMockMode() && orderId && paymentId && signature) {
+  if (!mockMode) {
+    if (!paymentId || !signature) {
+      return NextResponse.json(
+        { error: "paymentId and signature are required" },
+        { status: 400 }
+      );
+    }
     if (!verifyPaymentSignature({ orderId, paymentId, signature })) {
       return NextResponse.json({ error: "Invalid payment signature" }, { status: 400 });
     }
+  } else if (!orderId.startsWith("order_mock_")) {
+    return NextResponse.json(
+      { error: "Only mock orders can be confirmed while Razorpay is not configured" },
+      { status: 400 }
+    );
   }
 
-  markOrderPaid(orderId, paymentId ?? `pay_mock_${Date.now()}`, rfqId);
-  return NextResponse.json({ ok: true });
+  const result = markOrderPaid(orderId, paymentId);
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: result.status ?? 409 });
+  }
+  return NextResponse.json({ ok: true, duplicate: result.duplicate });
 }
 
 function markOrderPaid(
   orderId: string,
   paymentId?: string,
-  rfqIdHint?: string
-) {
+  amountPaise?: number,
+  currency?: string
+): PaymentResult {
   const commitment = db
     .prepare(`SELECT * FROM commitments WHERE razorpay_order_id = ?`)
-    .get(orderId) as { id: string; rfq_id: string } | undefined;
+    .get(orderId) as CommitmentRow | undefined;
 
   if (!commitment) {
-    if (rfqIdHint) {
-      const c = db
-        .prepare(
-          `SELECT * FROM commitments WHERE rfq_id = ? ORDER BY created_at DESC LIMIT 1`
-        )
-        .get(rfqIdHint) as
-        | { id: string; rfq_id: string }
-        | undefined;
-      if (c) {
-        applyPaid(c.id, c.rfq_id, paymentId);
-      }
-    }
-    return;
+    return { ok: false, error: "Unknown Razorpay order", status: 404 };
+  }
+  if (currency && currency !== "INR") {
+    return { ok: false, error: "Payment currency does not match the order" };
+  }
+  if (amountPaise !== undefined && amountPaise !== commitment.amount_paise) {
+    return { ok: false, error: "Payment amount does not match the commitment" };
   }
 
-  applyPaid(commitment.id, commitment.rfq_id, paymentId);
+  return applyPaid(commitment, paymentId ?? `pay_mock_${commitment.id}`);
 }
 
-function applyPaid(commitmentId: string, rfqId: string, paymentId?: string) {
-  const current = db
-    .prepare(`SELECT status FROM commitments WHERE id = ?`)
-    .get(commitmentId) as { status: string } | undefined;
-  if (current?.status === "deposit_paid" || current?.status === "locked") {
-    logAudit(rfqId, "razorpay", "duplicate_payment_ignored", { commitmentId });
-    return;
+function applyPaid(commitment: CommitmentRow, paymentId: string): PaymentResult {
+  if (commitment.status === "deposit_paid" || commitment.status === "locked") {
+    return { ok: true, duplicate: true };
+  }
+  if (commitment.status !== "payment_pending") {
+    return {
+      ok: false,
+      error: `Commitment cannot be paid while '${commitment.status}'`,
+    };
   }
 
-  db.prepare(
-    `UPDATE commitments SET status = ?, razorpay_payment_id = ? WHERE id = ?`
-  ).run("deposit_paid", paymentId ?? null, commitmentId);
+  db.transaction(() => {
+    const update = db.prepare(
+      `UPDATE commitments
+       SET status = 'locked', razorpay_payment_id = ?
+       WHERE id = ? AND status = 'payment_pending'`
+    ).run(paymentId, commitment.id);
+    if (update.changes !== 1) throw new Error("Commitment was updated concurrently");
+    const revision = db
+      .prepare(
+        `SELECT id, spec_json FROM revisions
+         WHERE quote_id = ? AND status = 'proposed'`
+      )
+      .get(commitment.quote_id) as
+      | { id: string; spec_json: string }
+      | undefined;
+    if (revision) {
+      db.prepare(`UPDATE revisions SET status = 'accepted' WHERE id = ?`).run(revision.id);
+      db.prepare(
+        `UPDATE rfqs SET spec_json = ?, status = 'locked', updated_at = ? WHERE id = ?`
+      ).run(revision.spec_json, Date.now(), commitment.rfq_id);
+    } else {
+      db.prepare(`UPDATE rfqs SET status = 'locked', updated_at = ? WHERE id = ?`).run(
+        Date.now(),
+        commitment.rfq_id
+      );
+    }
+    logAudit(commitment.rfq_id, "razorpay", "deposit_captured", {
+      commitmentId: commitment.id,
+      paymentId,
+      amountPaise: commitment.amount_paise,
+    });
+    logAudit(commitment.rfq_id, "system", "production_locked", {
+      commitmentId: commitment.id,
+      commitmentHash: commitment.commitment_hash,
+    });
+  })();
+  return { ok: true };
+}
 
-  db.prepare(`UPDATE rfqs SET status = ? WHERE id = ?`).run("deposit_paid", rfqId);
+type PaymentResult = {
+  ok: boolean;
+  error?: string;
+  status?: number;
+  duplicate?: boolean;
+  ignored?: boolean;
+};
 
-  logAudit(rfqId, "razorpay", "deposit_captured", {
-    commitmentId,
-    paymentId,
-  });
-
-  db.prepare(`UPDATE commitments SET status = ? WHERE id = ?`).run("locked", commitmentId);
-  db.prepare(`UPDATE rfqs SET status = ? WHERE id = ?`).run("locked", rfqId);
-  logAudit(rfqId, "system", "production_locked", { commitmentId });
+function extractPayment(payload: Record<string, unknown>, event: string) {
+  const wrapper = payload.payload as Record<string, unknown> | undefined;
+  const payment = (wrapper?.payment as { entity?: Record<string, unknown> } | undefined)
+    ?.entity;
+  const order = (wrapper?.order as { entity?: Record<string, unknown> } | undefined)?.entity;
+  return {
+    orderId:
+      (typeof payment?.order_id === "string" ? payment.order_id : undefined) ??
+      (event === "order.paid" && typeof order?.id === "string" ? order.id : undefined),
+    paymentId: typeof payment?.id === "string" ? payment.id : undefined,
+    amountPaise:
+      typeof payment?.amount === "number"
+        ? payment.amount
+        : typeof order?.amount_paid === "number"
+          ? order.amount_paid
+          : undefined,
+    currency:
+      typeof payment?.currency === "string"
+        ? payment.currency
+        : typeof order?.currency === "string"
+          ? order.currency
+          : undefined,
+  };
 }

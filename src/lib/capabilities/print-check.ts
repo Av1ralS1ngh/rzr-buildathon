@@ -3,6 +3,7 @@ import { newId } from "../commitment";
 export interface PrintCheckInput {
   filename: string;
   sizeBytes: number;
+  mimeType?: "application/pdf" | "image/png" | "image/jpeg";
   minDpi?: number;
   minBleedMm?: number;
 }
@@ -19,7 +20,13 @@ export function runPrintCheck(input: PrintCheckInput): {
     level: "pass" | "warn" | "fail";
   }> = [];
 
-  if (input.sizeBytes < 1024) {
+  if (input.sizeBytes === 0) {
+    checks.push({
+      code: "artwork",
+      message: "No artwork uploaded; preflight must be completed before production",
+      level: "warn",
+    });
+  } else if (input.sizeBytes < 1024) {
     checks.push({
       code: "file_size",
       message: "Artwork file too small — likely not print-ready",
@@ -29,6 +36,22 @@ export function runPrintCheck(input: PrintCheckInput): {
     checks.push({
       code: "file_size",
       message: "File size acceptable",
+      level: "pass",
+    });
+  }
+
+  const extension = input.filename.toLowerCase().split(".").pop();
+  const supportedExtension = ["pdf", "png", "jpg", "jpeg"].includes(extension ?? "");
+  if (!supportedExtension) {
+    checks.push({
+      code: "file_type",
+      message: "Artwork must be PDF, PNG, or JPEG",
+      level: "fail",
+    });
+  } else {
+    checks.push({
+      code: "file_type",
+      message: `Supported artwork format${input.mimeType ? ` (${input.mimeType})` : ""}`,
       level: "pass",
     });
   }
@@ -75,6 +98,7 @@ export function runPrintCheck(input: PrintCheckInput): {
     payload: {
       filename: input.filename,
       sizeBytes: input.sizeBytes,
+      mimeType: input.mimeType,
       checks,
       engine: "speclock-print-check-v1",
     },

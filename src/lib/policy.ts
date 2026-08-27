@@ -1,6 +1,7 @@
 import type { LabelSpec } from "./types";
 
-const MAX_AUTONOMOUS_REVISION_PAise = 200000; // ₹2,000
+const MAX_AUTONOMOUS_REVISION_PAISE = 200000; // ₹2,000
+const MERCHANT_APPROVAL_THRESHOLD_PAISE = 5_000_000; // ₹50,000
 
 export function policyCheckQuote(spec: LabelSpec, totalPaise: number): {
   allowed: boolean;
@@ -14,7 +15,7 @@ export function policyCheckQuote(spec: LabelSpec, totalPaise: number): {
   if (spec.quantity < 1000) {
     reasons.push("Below MOQ policy");
   }
-  const requiresApproval = totalPaise > 500000; // > ₹5k needs merchant approval
+  const requiresApproval = totalPaise > MERCHANT_APPROVAL_THRESHOLD_PAISE;
   return {
     allowed: reasons.length === 0,
     requiresApproval,
@@ -31,7 +32,7 @@ export function policyCheckRevision(deltaPaise: number): {
   }
   return {
     allowed: true,
-    requiresHumanApproval: deltaPaise > MAX_AUTONOMOUS_REVISION_PAise,
+    requiresHumanApproval: deltaPaise > MAX_AUTONOMOUS_REVISION_PAISE,
   };
 }
 

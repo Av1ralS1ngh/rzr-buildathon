@@ -3,15 +3,19 @@ import db from "@/lib/db";
 import { parseRfqText } from "@/lib/rfq-parser";
 import { logAudit } from "@/lib/audit";
 import { newId } from "@/lib/commitment";
+import { createRfqSchema, validationMessage } from "@/lib/validation";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const rawText = String(body.rawText ?? "");
-  if (!rawText.trim()) {
-    return NextResponse.json({ error: "rawText required" }, { status: 400 });
+  const result = createRfqSchema.safeParse(await req.json().catch(() => null));
+  if (!result.success) {
+    return NextResponse.json(
+      { error: validationMessage(result.error) },
+      { status: 400 }
+    );
   }
+  const { rawText } = result.data;
 
   const parsed = parseRfqText(rawText);
   const id = newId("rfq");
@@ -21,8 +25,9 @@ export async function POST(req: NextRequest) {
       : "draft";
 
   db.prepare(
-    `INSERT INTO rfqs (id, status, raw_text, spec_json, artwork_hash, clarification_json, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO rfqs (
+      id, status, raw_text, spec_json, artwork_hash, clarification_json, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     status,
@@ -33,6 +38,7 @@ export async function POST(req: NextRequest) {
       missingFields: parsed.missingFields,
       questions: parsed.clarificationQuestions,
     }),
+    Date.now(),
     Date.now()
   );
 
@@ -41,13 +47,16 @@ export async function POST(req: NextRequest) {
     confidence: parsed.confidence,
   });
 
-  return NextResponse.json({
-    id,
-    status,
-    spec: parsed.spec,
-    missingFields: parsed.missingFields,
-    clarificationQuestions: parsed.clarificationQuestions,
-  });
+  return NextResponse.json(
+    {
+      id,
+      status,
+      spec: parsed.spec,
+      missingFields: parsed.missingFields,
+      clarificationQuestions: parsed.clarificationQuestions,
+    },
+    { status: 201 }
+  );
 }
 
 export async function GET() {

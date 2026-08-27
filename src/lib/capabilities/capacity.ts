@@ -9,7 +9,7 @@ export function runCapacityCheck(spec: LabelSpec, specHash: string): {
 } {
   const result = checkCapacity(spec);
   return {
-    status: result.feasible ? "pass" : "warn",
+    status: result.feasible ? "pass" : "fail",
     receiptId: newId("rcpt_cap"),
     payload: {
       specHash,

@@ -1,6 +1,6 @@
 import type { LabelSpec, LineItem, QuoteResult } from "./types";
 
-const PRICEbook_VERSION = "v1";
+const PRICEBOOK_VERSION = "v2";
 
 const SETUP_PAise = 350000; // ₹3,500
 const WASTAGE_RATE = 0.08;
@@ -18,6 +18,14 @@ function materialRatePaise(spec: LabelSpec): number {
 }
 
 export function calculateQuote(spec: LabelSpec): QuoteResult {
+  if (
+    !Number.isSafeInteger(spec.quantity) ||
+    !Number.isSafeInteger(spec.budgetPaise) ||
+    spec.widthMm <= 0 ||
+    spec.heightMm <= 0
+  ) {
+    throw new Error("Specification contains invalid numeric values");
+  }
   if (spec.quantity < MIN_MOQ) {
     throw new Error(`MOQ is ${MIN_MOQ} labels`);
   }
@@ -69,15 +77,15 @@ export function calculateQuote(spec: LabelSpec): QuoteResult {
     });
   }
 
-  const subtotalPaise = lineItems.reduce((s, i) => s + i.amountPaise, 0);
-  const marginPaise = Math.round(subtotalPaise * MARGIN_RATE);
+  const preMarginPaise = lineItems.reduce((sum, item) => sum + item.amountPaise, 0);
+  const marginPaise = Math.round(preMarginPaise * MARGIN_RATE);
   lineItems.push({
     code: "margin",
     label: "Production margin",
     amountPaise: marginPaise,
   });
 
-  const totalPaise = subtotalPaise + marginPaise;
+  const totalPaise = preMarginPaise + marginPaise;
   const depositPaise = Math.max(100, Math.round(totalPaise * 0.3));
 
   if (totalPaise > spec.budgetPaise) {
@@ -90,7 +98,7 @@ export function calculateQuote(spec: LabelSpec): QuoteResult {
 
   return {
     lineItems,
-    subtotalPaise: subtotalPaise + marginPaise,
+    subtotalPaise: preMarginPaise,
     verificationFeePaise: VERIFICATION_FEE_PAise,
     totalPaise,
     depositPaise,
@@ -99,7 +107,7 @@ export function calculateQuote(spec: LabelSpec): QuoteResult {
 }
 
 export function getPricebookVersion() {
-  return PRICEbook_VERSION;
+  return PRICEBOOK_VERSION;
 }
 
 export function checkCapacity(spec: LabelSpec): {
@@ -107,12 +115,11 @@ export function checkCapacity(spec: LabelSpec): {
   earliestShipDate: string;
   reason: string;
 } {
-  const today = new Date();
-  const requested = new Date(spec.deliveryDate);
+  const today = startOfUtcDay(new Date());
+  const requested = new Date(`${spec.deliveryDate}T00:00:00Z`);
   const daysNeeded =
     spec.quantity > 15000 ? 5 : spec.quantity > 8000 ? 4 : 3;
-  const earliest = new Date(today);
-  earliest.setDate(earliest.getDate() + daysNeeded);
+  const earliest = addBusinessDays(today, daysNeeded);
 
   const feasible = earliest <= requested;
   return {
@@ -122,4 +129,19 @@ export function checkCapacity(spec: LabelSpec): {
       ? `Slot available with ${daysNeeded}-day production window`
       : `Earliest feasible ship date is ${earliest.toISOString().slice(0, 10)}`,
   };
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function addBusinessDays(from: Date, count: number): Date {
+  const date = new Date(from);
+  let added = 0;
+  while (added < count) {
+    date.setUTCDate(date.getUTCDate() + 1);
+    const day = date.getUTCDay();
+    if (day !== 0 && day !== 6) added += 1;
+  }
+  return date;
 }
