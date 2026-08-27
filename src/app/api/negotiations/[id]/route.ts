@@ -10,7 +10,7 @@ export async function GET(
 ) {
   try {
     const { id } = await ctx.params;
-    return NextResponse.json(getNegotiation(id));
+    return NextResponse.json(await getNegotiation(id));
   } catch (error) {
     return apiError(error);
   }

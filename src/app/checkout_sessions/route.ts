@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     }
     const body = createSchema.parse(await req.json());
     const lineItems = body.line_items ?? body.items!;
-    const session = createProtocolNegotiation({
+    const session = await createProtocolNegotiation({
       protocol: "acp",
       buyerAgentId:
         req.headers.get("user-agent") ?? "unknown-acp-buyer-agent",
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
         acp_capabilities: body.capabilities,
       },
     });
-    return NextResponse.json(toAcpCheckout(session.id), {
+    return NextResponse.json(await toAcpCheckout(session.id), {
       status: 201,
       headers: {
         "API-Version": ACP_VERSION,

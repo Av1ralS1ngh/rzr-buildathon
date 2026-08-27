@@ -15,7 +15,9 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params;
-  const rfq = db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id) as RfqRow | undefined;
+  const rfq = (await db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id)) as
+    | RfqRow
+    | undefined;
   if (!rfq) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -48,12 +50,10 @@ export async function POST(
     );
   }
 
-  db.prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`).run(
-    "orchestrating",
-    Date.now(),
-    id
-  );
-  logAudit(id, "buyer_agent", "orchestration_started", {});
+  await db
+    .prepare(`UPDATE rfqs SET status = ?, updated_at = ? WHERE id = ?`)
+    .run("orchestrating", Date.now(), id);
+  await logAudit(id, "buyer_agent", "orchestration_started", {});
 
   try {
     const body = parsedBody.data;
@@ -71,11 +71,10 @@ export async function POST(
     return NextResponse.json(result, { status: result.blocked ? 422 : 200 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Verification failed";
-    db.prepare(`UPDATE rfqs SET status = 'draft', updated_at = ? WHERE id = ?`).run(
-      Date.now(),
-      id
-    );
-    logAudit(id, "orchestrator", "orchestration_failed", { message });
+    await db
+      .prepare(`UPDATE rfqs SET status = 'draft', updated_at = ? WHERE id = ?`)
+      .run(Date.now(), id);
+    await logAudit(id, "orchestrator", "orchestration_failed", { message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

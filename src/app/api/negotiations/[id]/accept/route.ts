@@ -18,7 +18,7 @@ export async function POST(
         req.headers.get("idempotency-key") ?? body.idempotencyKey,
     });
     return NextResponse.json(
-      acceptSellerOffer(id, input.offerId, input.idempotencyKey)
+      await acceptSellerOffer(id, input.offerId, input.idempotencyKey)
     );
   } catch (error) {
     return apiError(error);

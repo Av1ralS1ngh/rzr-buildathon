@@ -48,7 +48,7 @@ export async function GET(
   try {
     requireRequestId(req);
     const { id } = await ctx.params;
-    return ucpResponse(toUcpCheckout(id));
+    return ucpResponse(await toUcpCheckout(id));
   } catch (error) {
     return apiError(error);
   }
@@ -66,22 +66,22 @@ export async function PUT(
     const input = command.input;
     let result: unknown;
     if (command.action === "auto_negotiate") {
-      result = runAutonomousNegotiation(id);
+      result = await runAutonomousNegotiation(id);
     } else if (command.action === "list_bundles") {
-      result = { bundles: generateBundleOptions(id) };
+      result = { bundles: await generateBundleOptions(id) };
     } else if (command.action === "select_bundle") {
       result = {
-        offer: selectBundleOption(id, z.string().parse(input.bundleId)),
+        offer: await selectBundleOption(id, z.string().parse(input.bundleId)),
       };
     } else if (command.action === "accept") {
-      result = acceptSellerOffer(id, z.string().parse(input.offerId));
+      result = await acceptSellerOffer(id, z.string().parse(input.offerId));
     } else {
-      const session = getNegotiation(id);
+      const session = await getNegotiation(id);
       const active = [...session.offers]
         .reverse()
         .find((offer) => offer.actor === "seller" && offer.status === "active");
       if (!active) throw new Error("No active seller offer found");
-      result = counterNegotiation(
+      result = await counterNegotiation(
         id,
         counterOfferSchema.parse({
           ...input,
@@ -89,8 +89,9 @@ export async function PUT(
         })
       );
     }
+    const checkout = await toUcpCheckout(id);
     return ucpResponse({
-      ...toUcpCheckout(id),
+      ...checkout,
       operation_result: result,
     });
   } catch (error) {

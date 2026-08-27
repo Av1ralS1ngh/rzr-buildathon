@@ -17,7 +17,7 @@ export async function POST(
       idempotencyKey:
         req.headers.get("idempotency-key") ?? body.idempotencyKey,
     });
-    return NextResponse.json(counterNegotiation(id, input));
+    return NextResponse.json(await counterNegotiation(id, input));
   } catch (error) {
     return apiError(error);
   }

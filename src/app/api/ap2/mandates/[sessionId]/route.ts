@@ -12,7 +12,7 @@ export async function GET(
       protocol: "AP2",
       profile: "AP2-compatible signed mandates without selective disclosures",
       sessionId,
-      mandates: listMandates(sessionId, "shared"),
+      mandates: await listMandates(sessionId, "shared"),
       verificationEndpoint: "/api/mandates/verify",
     });
   } catch (error) {

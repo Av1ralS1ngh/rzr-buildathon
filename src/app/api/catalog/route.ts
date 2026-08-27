@@ -9,9 +9,9 @@ import {
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  ensureDefaultCommerceData();
+  await ensureDefaultCommerceData();
   const merchantId =
     req.nextUrl.searchParams.get("merchantId") ?? DEFAULT_MERCHANT_ID;
-  const products = listProducts(merchantId).map(toPublicProduct);
+  const products = (await listProducts(merchantId)).map(toPublicProduct);
   return NextResponse.json({ merchantId, currency: "INR", products });
 }

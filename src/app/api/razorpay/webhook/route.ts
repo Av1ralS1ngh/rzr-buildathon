@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     req.headers.get("x-razorpay-event-id") ??
     (typeof payload.id === "string" ? payload.id : null) ??
     crypto.createHash("sha256").update(rawBody).digest("hex");
-  const seen = db
+  const seen = await db
     .prepare(`SELECT event_id FROM webhook_events WHERE event_id = ?`)
     .get(eventId);
   if (seen) return NextResponse.json({ ok: true, duplicate: true });
@@ -54,15 +54,17 @@ export async function POST(req: NextRequest) {
     if (!data.orderId) {
       return NextResponse.json({ error: "Webhook is missing an order id" }, { status: 400 });
     }
-    result = markOrderPaid(data.orderId, data.paymentId, data.amountPaise, data.currency);
+    result = await markOrderPaid(data.orderId, data.paymentId, data.amountPaise, data.currency);
   }
 
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status ?? 409 });
   }
-  db.prepare(
-    `INSERT INTO webhook_events (event_id, event_type, processed_at) VALUES (?, ?, ?)`
-  ).run(eventId, event, Date.now());
+  await db
+    .prepare(
+      `INSERT INTO webhook_events (event_id, event_type, processed_at) VALUES (?, ?, ?)`
+    )
+    .run(eventId, event, Date.now());
   return NextResponse.json({ ok: true, ignored: result.ignored });
 }
 
@@ -96,26 +98,26 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  const result = markOrderPaid(orderId, paymentId);
+  const result = await markOrderPaid(orderId, paymentId);
   if (!result.ok) {
     return NextResponse.json({ error: result.error }, { status: result.status ?? 409 });
   }
   return NextResponse.json({ ok: true, duplicate: result.duplicate });
 }
 
-function markOrderPaid(
+async function markOrderPaid(
   orderId: string,
   paymentId?: string,
   amountPaise?: number,
   currency?: string
-): PaymentResult {
-  const commitment = db
+): Promise<PaymentResult> {
+  const commitment = (await db
     .prepare(`SELECT * FROM commitments WHERE razorpay_order_id = ?`)
-    .get(orderId) as CommitmentRow | undefined;
+    .get(orderId)) as CommitmentRow | undefined;
 
   if (!commitment) {
     try {
-      const commerceResult = markCommerceOrderPaid({
+      const commerceResult = await markCommerceOrderPaid({
         razorpayOrderId: orderId,
         paymentId: paymentId ?? `pay_mock_${orderId}`,
         amountPaise,
@@ -145,7 +147,10 @@ function markOrderPaid(
   return applyPaid(commitment, paymentId ?? `pay_mock_${commitment.id}`);
 }
 
-function applyPaid(commitment: CommitmentRow, paymentId: string): PaymentResult {
+async function applyPaid(
+  commitment: CommitmentRow,
+  paymentId: string
+): Promise<PaymentResult> {
   if (commitment.status === "deposit_paid" || commitment.status === "locked") {
     return { ok: true, duplicate: true };
   }
@@ -156,42 +161,45 @@ function applyPaid(commitment: CommitmentRow, paymentId: string): PaymentResult 
     };
   }
 
-  db.transaction(() => {
-    const update = db.prepare(
-      `UPDATE commitments
+  await db.transaction(async () => {
+    const update = await db
+      .prepare(
+        `UPDATE commitments
        SET status = 'locked', razorpay_payment_id = ?
        WHERE id = ? AND status = 'payment_pending'`
-    ).run(paymentId, commitment.id);
+      )
+      .run(paymentId, commitment.id);
     if (update.changes !== 1) throw new Error("Commitment was updated concurrently");
-    const revision = db
+    const revision = (await db
       .prepare(
         `SELECT id, spec_json FROM revisions
          WHERE quote_id = ? AND status = 'proposed'`
       )
-      .get(commitment.quote_id) as
+      .get(commitment.quote_id)) as
       | { id: string; spec_json: string }
       | undefined;
     if (revision) {
-      db.prepare(`UPDATE revisions SET status = 'accepted' WHERE id = ?`).run(revision.id);
-      db.prepare(
-        `UPDATE rfqs SET spec_json = ?, status = 'locked', updated_at = ? WHERE id = ?`
-      ).run(revision.spec_json, Date.now(), commitment.rfq_id);
+      await db.prepare(`UPDATE revisions SET status = 'accepted' WHERE id = ?`).run(revision.id);
+      await db
+        .prepare(
+          `UPDATE rfqs SET spec_json = ?, status = 'locked', updated_at = ? WHERE id = ?`
+        )
+        .run(revision.spec_json, Date.now(), commitment.rfq_id);
     } else {
-      db.prepare(`UPDATE rfqs SET status = 'locked', updated_at = ? WHERE id = ?`).run(
-        Date.now(),
-        commitment.rfq_id
-      );
+      await db
+        .prepare(`UPDATE rfqs SET status = 'locked', updated_at = ? WHERE id = ?`)
+        .run(Date.now(), commitment.rfq_id);
     }
-    logAudit(commitment.rfq_id, "razorpay", "deposit_captured", {
+    await logAudit(commitment.rfq_id, "razorpay", "deposit_captured", {
       commitmentId: commitment.id,
       paymentId,
       amountPaise: commitment.amount_paise,
     });
-    logAudit(commitment.rfq_id, "system", "production_locked", {
+    await logAudit(commitment.rfq_id, "system", "production_locked", {
       commitmentId: commitment.id,
       commitmentHash: commitment.commitment_hash,
     });
-  })();
+  });
   return { ok: true };
 }
 

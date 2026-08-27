@@ -10,7 +10,7 @@ export async function POST(
 ) {
   try {
     const { id } = await ctx.params;
-    return NextResponse.json(runAutonomousNegotiation(id));
+    return NextResponse.json(await runAutonomousNegotiation(id));
   } catch (error) {
     return apiError(error);
   }

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     if (!orderId) {
       return NextResponse.json({ error: "orderId is required" }, { status: 400 });
     }
-    return NextResponse.json(getCommerceOrder(orderId));
+    return NextResponse.json(await getCommerceOrder(orderId));
   } catch (error) {
     return apiError(error);
   }

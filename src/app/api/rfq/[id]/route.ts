@@ -21,28 +21,30 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params;
-  const rfq = db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id) as RfqRow | undefined;
+  const rfq = (await db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id)) as
+    | RfqRow
+    | undefined;
   if (!rfq) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const quote = db
+  const quote = (await db
     .prepare(
       `SELECT * FROM quotes
        WHERE rfq_id = ? AND status = 'active'
        ORDER BY created_at DESC LIMIT 1`
     )
-    .get(id) as QuoteRow | undefined;
+    .get(id)) as QuoteRow | undefined;
 
-  const commitment = db
+  const commitment = (await db
     .prepare(`SELECT * FROM commitments WHERE rfq_id = ? ORDER BY version DESC LIMIT 1`)
-    .get(id) as CommitmentRow | undefined;
-  const revision = db
+    .get(id)) as CommitmentRow | undefined;
+  const revision = (await db
     .prepare(
       `SELECT id, quote_id, spec_json, status, delta_paise, requires_approval, reason, created_at
        FROM revisions WHERE rfq_id = ? ORDER BY created_at DESC LIMIT 1`
     )
-    .get(id) as
+    .get(id)) as
     | {
         id: string;
         quote_id: string;
@@ -111,8 +113,8 @@ export async function GET(
           createdAt: revision.created_at,
         }
       : null,
-    receipts: getReceiptsForRfq(id),
-    audit: getAuditEvents(id),
+    receipts: await getReceiptsForRfq(id),
+    audit: await getAuditEvents(id),
   });
 }
 
@@ -128,7 +130,9 @@ export async function PATCH(
       { status: 400 }
     );
   }
-  const rfq = db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id) as RfqRow | undefined;
+  const rfq = (await db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id)) as
+    | RfqRow
+    | undefined;
   if (!rfq) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -153,30 +157,34 @@ export async function PATCH(
         : "")
     : true;
 
-  db.transaction(() => {
-    db.prepare(
-      `UPDATE rfqs
+  await db.transaction(async () => {
+    await db
+      .prepare(
+        `UPDATE rfqs
        SET spec_json = ?, clarification_json = ?, status = ?, updated_at = ?
        WHERE id = ?`
-    ).run(
-      JSON.stringify(merged),
-      JSON.stringify({ missingFields, questions: [] }),
-      nextStatus,
-      Date.now(),
-      id
-    );
+      )
+      .run(
+        JSON.stringify(merged),
+        JSON.stringify({ missingFields, questions: [] }),
+        nextStatus,
+        Date.now(),
+        id
+      );
     if (changed) {
-      db.prepare(
-        `UPDATE quotes SET status = 'superseded'
+      await db
+        .prepare(
+          `UPDATE quotes SET status = 'superseded'
          WHERE rfq_id = ? AND status = 'active'`
-      ).run(id);
+        )
+        .run(id);
     }
-    logAudit(id, "buyer_agent", "rfq_updated", {
+    await logAudit(id, "buyer_agent", "rfq_updated", {
       fields: Object.keys(parsedBody.data.spec ?? {}),
       quoteInvalidated: changed,
       ready: Boolean(spec),
     });
-  })();
+  });
 
   return NextResponse.json({ ok: true, spec: merged, ready: Boolean(spec), missingFields });
 }

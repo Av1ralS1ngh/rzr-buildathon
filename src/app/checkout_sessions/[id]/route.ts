@@ -45,7 +45,7 @@ export async function GET(
     validateVersion(req);
     requireAuthorization(req);
     const { id } = await ctx.params;
-    return acpResponse(toAcpCheckout(id));
+    return acpResponse(await toAcpCheckout(id));
   } catch (error) {
     return apiError(error);
   }
@@ -64,22 +64,22 @@ export async function POST(
     const input = body.metadata.speclock_input;
     let result: unknown;
     if (action === "auto_negotiate") {
-      result = runAutonomousNegotiation(id);
+      result = await runAutonomousNegotiation(id);
     } else if (action === "list_bundles") {
-      result = { bundles: generateBundleOptions(id) };
+      result = { bundles: await generateBundleOptions(id) };
     } else if (action === "select_bundle") {
       result = {
-        offer: selectBundleOption(id, z.string().parse(input.bundleId)),
+        offer: await selectBundleOption(id, z.string().parse(input.bundleId)),
       };
     } else if (action === "accept") {
-      result = acceptSellerOffer(id, z.string().parse(input.offerId));
+      result = await acceptSellerOffer(id, z.string().parse(input.offerId));
     } else {
-      const session = getNegotiation(id);
+      const session = await getNegotiation(id);
       const active = [...session.offers]
         .reverse()
         .find((offer) => offer.actor === "seller" && offer.status === "active");
       if (!active) throw new Error("No active seller offer found");
-      result = counterNegotiation(
+      result = await counterNegotiation(
         id,
         counterOfferSchema.parse({
           ...input,
@@ -87,10 +87,11 @@ export async function POST(
         })
       );
     }
+    const checkout = await toAcpCheckout(id);
     return acpResponse({
-      ...toAcpCheckout(id),
+      ...checkout,
       metadata: {
-        ...toAcpCheckout(id).metadata,
+        ...checkout.metadata,
         speclock_operation_result: result,
       },
     });

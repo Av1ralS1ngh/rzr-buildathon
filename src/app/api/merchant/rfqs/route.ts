@@ -4,7 +4,7 @@ import db from "@/lib/db";
 export const runtime = "nodejs";
 
 export async function GET() {
-  const rfqs = db
+  const rfqs = await db
     .prepare(
       `SELECT r.id, r.status, r.raw_text, r.created_at,
               q.total_paise, q.deposit_paise,

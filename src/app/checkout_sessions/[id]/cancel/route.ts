@@ -27,8 +27,8 @@ export async function POST(
       );
     }
     const { id } = await ctx.params;
-    cancelNegotiation(id);
-    return NextResponse.json(toAcpCheckout(id), {
+    await cancelNegotiation(id);
+    return NextResponse.json(await toAcpCheckout(id), {
       headers: { "API-Version": ACP_VERSION },
     });
   } catch (error) {

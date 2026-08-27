@@ -14,7 +14,7 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id } = await ctx.params;
-  const rfq = db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id) as
+  const rfq = (await db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(id)) as
     | RfqRow
     | undefined;
   if (!rfq) {
@@ -64,24 +64,28 @@ export async function POST(
   }
 
   const hash = hashArtwork(buffer);
-  db.transaction(() => {
-    db.prepare(
-      `UPDATE rfqs
+  await db.transaction(async () => {
+    await db
+      .prepare(
+        `UPDATE rfqs
        SET artwork_hash = ?, artwork_name = ?, artwork_mime = ?, artwork_size = ?,
            status = 'draft', updated_at = ?
        WHERE id = ?`
-    ).run(hash, safeFilename(value.name), value.type, value.size, Date.now(), id);
-    db.prepare(
-      `UPDATE quotes SET status = 'superseded'
+      )
+      .run(hash, safeFilename(value.name), value.type, value.size, Date.now(), id);
+    await db
+      .prepare(
+        `UPDATE quotes SET status = 'superseded'
        WHERE rfq_id = ? AND status = 'active'`
-    ).run(id);
-    logAudit(id, "buyer_agent", "artwork_uploaded", {
+      )
+      .run(id);
+    await logAudit(id, "buyer_agent", "artwork_uploaded", {
       filename: safeFilename(value.name),
       mimeType: value.type,
       sizeBytes: value.size,
       hash,
     });
-  })();
+  });
 
   return NextResponse.json({
     artwork: {

@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       );
     }
     const body = createSchema.parse(await req.json());
-    const session = createProtocolNegotiation({
+    const session = await createProtocolNegotiation({
       protocol: "ucp",
       buyerAgentId: agent,
       idempotencyKey,
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
       })),
       metadata: body.metadata,
     });
-    return NextResponse.json(toUcpCheckout(session.id), {
+    return NextResponse.json(await toUcpCheckout(session.id), {
       status: 201,
       headers: { "Idempotency-Key": idempotencyKey, "Request-Id": requestId },
     });

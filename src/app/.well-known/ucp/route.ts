@@ -11,7 +11,7 @@ import { UCP_VERSION } from "@/lib/commerce/protocol-adapters";
 export const runtime = "nodejs";
 
 export async function GET() {
-  ensureDefaultCommerceData();
+  await ensureDefaultCommerceData();
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:43123";
   return NextResponse.json(
     {

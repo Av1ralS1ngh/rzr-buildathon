@@ -24,25 +24,27 @@ export async function POST(req: NextRequest) {
       ? "needs_clarification"
       : "draft";
 
-  db.prepare(
-    `INSERT INTO rfqs (
+  await db
+    .prepare(
+      `INSERT INTO rfqs (
       id, status, raw_text, spec_json, artwork_hash, clarification_json, created_at, updated_at
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    id,
-    status,
-    rawText,
-    JSON.stringify(parsed.spec),
-    null,
-    JSON.stringify({
-      missingFields: parsed.missingFields,
-      questions: parsed.clarificationQuestions,
-    }),
-    Date.now(),
-    Date.now()
-  );
+    )
+    .run(
+      id,
+      status,
+      rawText,
+      JSON.stringify(parsed.spec),
+      null,
+      JSON.stringify({
+        missingFields: parsed.missingFields,
+        questions: parsed.clarificationQuestions,
+      }),
+      Date.now(),
+      Date.now()
+    );
 
-  logAudit(id, "buyer_agent", "rfq_created", {
+  await logAudit(id, "buyer_agent", "rfq_created", {
     missingFields: parsed.missingFields,
     confidence: parsed.confidence,
   });
@@ -60,7 +62,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET() {
-  const rows = db
+  const rows = await db
     .prepare(`SELECT id, status, raw_text, created_at FROM rfqs ORDER BY created_at DESC LIMIT 20`)
     .all();
   return NextResponse.json({ rfqs: rows });

@@ -19,8 +19,8 @@ export async function POST(
       return NextResponse.json({ error: "Request-Id header is required" }, { status: 400 });
     }
     const { id } = await ctx.params;
-    cancelNegotiation(id);
-    return NextResponse.json(toUcpCheckout(id));
+    await cancelNegotiation(id);
+    return NextResponse.json(await toUcpCheckout(id));
   } catch (error) {
     return apiError(error);
   }

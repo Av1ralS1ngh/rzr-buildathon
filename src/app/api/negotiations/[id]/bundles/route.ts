@@ -16,7 +16,7 @@ export async function GET(
 ) {
   try {
     const { id } = await ctx.params;
-    return NextResponse.json({ bundles: generateBundleOptions(id) });
+    return NextResponse.json({ bundles: await generateBundleOptions(id) });
   } catch (error) {
     return apiError(error);
   }
@@ -30,7 +30,7 @@ export async function POST(
     const { id } = await ctx.params;
     const input = selectBundleSchema.parse(await req.json());
     return NextResponse.json({
-      offer: selectBundleOption(id, input.bundleId),
+      offer: await selectBundleOption(id, input.bundleId),
     });
   } catch (error) {
     return apiError(error);

@@ -85,11 +85,12 @@ export async function POST(
     }
     const { id } = await ctx.params;
     const order = await createCommerceOrder(id);
+    const checkout = await toAcpCheckout(id);
     return NextResponse.json(
       {
-        ...toAcpCheckout(id),
+        ...checkout,
         metadata: {
-          ...toAcpCheckout(id).metadata,
+          ...checkout.metadata,
           speclock_payment_action: {
             provider: "razorpay",
             order_id: order.razorpayOrderId,

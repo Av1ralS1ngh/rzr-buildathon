@@ -19,7 +19,9 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: rfqId } = await ctx.params;
-  const rfq = db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(rfqId) as RfqRow | undefined;
+  const rfq = (await db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(rfqId)) as
+    | RfqRow
+    | undefined;
   if (!rfq) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
@@ -38,7 +40,7 @@ export async function POST(
       { status: 400 }
     );
   }
-  const pending = db
+  const pending = await db
     .prepare(`SELECT id FROM revisions WHERE rfq_id = ? AND status = 'proposed'`)
     .get(rfqId);
   if (pending) {
@@ -69,19 +71,19 @@ export async function POST(
     return NextResponse.json({ error: "No material spec change" }, { status: 400 });
   }
 
-  const baseCommitment = db
+  const baseCommitment = (await db
     .prepare(
       `SELECT * FROM commitments
        WHERE rfq_id = ? AND status = 'locked'
        ORDER BY version DESC LIMIT 1`
     )
-    .get(rfqId) as CommitmentRow | undefined;
+    .get(rfqId)) as CommitmentRow | undefined;
   if (!baseCommitment) {
     return NextResponse.json({ error: "Locked commitment not found" }, { status: 409 });
   }
-  const oldQuote = db.prepare(`SELECT * FROM quotes WHERE id = ?`).get(
+  const oldQuote = (await db.prepare(`SELECT * FROM quotes WHERE id = ?`).get(
     baseCommitment.quote_id
-  ) as QuoteRow | undefined;
+  )) as QuoteRow | undefined;
   if (!oldQuote) {
     return NextResponse.json({ error: "Original quote not found" }, { status: 409 });
   }
@@ -99,7 +101,7 @@ export async function POST(
   const capacity = runCapacityCheck(newSpec, newHash);
   const failed = [rules, print, capacity].filter((result) => result.status === "fail");
   if (failed.length > 0) {
-    logAudit(rfqId, "orchestrator", "revision_blocked", {
+    await logAudit(rfqId, "orchestrator", "revision_blocked", {
       failedChecks: failed.map((result) => result.receiptId),
     });
     return NextResponse.json(
@@ -121,12 +123,12 @@ export async function POST(
   const revisionPolicy = policyCheckRevision(deltaPaise);
   const quotePolicy = policyCheckQuote(newSpec, newQuote.totalPaise);
   const paidDeposits = (
-    db
+    (await db
       .prepare(
         `SELECT COALESCE(SUM(amount_paise), 0) AS total
          FROM commitments WHERE rfq_id = ? AND status = 'locked'`
       )
-      .get(rfqId) as { total: number }
+      .get(rfqId)) as { total: number }
   ).total;
   const additionalDepositPaise = Math.max(0, newQuote.depositPaise - paidDeposits);
   const requiresApproval =
@@ -135,46 +137,52 @@ export async function POST(
   const quoteId = newId("quote");
   const now = Date.now();
 
-  db.transaction(() => {
-    db.prepare(`UPDATE quotes SET status = 'superseded' WHERE rfq_id = ? AND status = 'active'`)
+  await db.transaction(async () => {
+    await db
+      .prepare(`UPDATE quotes SET status = 'superseded' WHERE rfq_id = ? AND status = 'active'`)
       .run(rfqId);
-    db.prepare(
-      `INSERT INTO quotes (
+    await db
+      .prepare(
+        `INSERT INTO quotes (
         id, rfq_id, line_items_json, total_paise, deposit_paise, spec_hash,
         artwork_hash, pricebook_version, expires_at, created_at, status, requires_approval
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`
-    ).run(
-      quoteId,
-      rfqId,
-      JSON.stringify(newQuote.lineItems),
-      newQuote.totalPaise,
-      additionalDepositPaise,
-      newHash,
-      rfq.artwork_hash,
-      getPricebookVersion(),
-      now + 48 * 60 * 60 * 1000,
-      now,
-      requiresApproval ? 1 : 0
-    );
-    db.prepare(
-      `INSERT INTO revisions (
+      )
+      .run(
+        quoteId,
+        rfqId,
+        JSON.stringify(newQuote.lineItems),
+        newQuote.totalPaise,
+        additionalDepositPaise,
+        newHash,
+        rfq.artwork_hash,
+        getPricebookVersion(),
+        now + 48 * 60 * 60 * 1000,
+        now,
+        requiresApproval ? 1 : 0
+      );
+    await db
+      .prepare(
+        `INSERT INTO revisions (
         id, rfq_id, base_commitment_id, quote_id, spec_json, status,
         delta_paise, requires_approval, reason, created_at
       ) VALUES (?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)`
-    ).run(
-      revisionId,
-      rfqId,
-      baseCommitment.id,
-      quoteId,
-      JSON.stringify(newSpec),
-      deltaPaise,
-      requiresApproval ? 1 : 0,
-      parsedBody.data.reason ?? null,
-      now
-    );
-    db.prepare(`UPDATE rfqs SET status = 'revision_proposed', updated_at = ? WHERE id = ?`)
+      )
+      .run(
+        revisionId,
+        rfqId,
+        baseCommitment.id,
+        quoteId,
+        JSON.stringify(newSpec),
+        deltaPaise,
+        requiresApproval ? 1 : 0,
+        parsedBody.data.reason ?? null,
+        now
+      );
+    await db
+      .prepare(`UPDATE rfqs SET status = 'revision_proposed', updated_at = ? WHERE id = ?`)
       .run(now, rfqId);
-    logAudit(rfqId, "buyer_agent", "revision_proposed", {
+    await logAudit(rfqId, "buyer_agent", "revision_proposed", {
       revisionId,
       quoteId,
       deltaPaise,
@@ -183,7 +191,7 @@ export async function POST(
       newHash,
       requiresHumanApproval: requiresApproval,
     });
-  })();
+  });
 
   return NextResponse.json({
     revisionId,
@@ -202,19 +210,19 @@ export async function DELETE(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: rfqId } = await ctx.params;
-  const revision = db
+  const revision = (await db
     .prepare(
       `SELECT id, quote_id, base_commitment_id
        FROM revisions WHERE rfq_id = ? AND status = 'proposed'
        ORDER BY created_at DESC LIMIT 1`
     )
-    .get(rfqId) as
+    .get(rfqId)) as
     | { id: string; quote_id: string; base_commitment_id: string }
     | undefined;
   if (!revision) {
     return NextResponse.json({ error: "No proposed revision found" }, { status: 404 });
   }
-  const pendingPayment = db
+  const pendingPayment = await db
     .prepare(
       `SELECT id FROM commitments
        WHERE quote_id = ? AND status = 'payment_pending'`
@@ -226,23 +234,23 @@ export async function DELETE(
       { status: 409 }
     );
   }
-  const base = db
+  const base = (await db
     .prepare(`SELECT quote_id FROM commitments WHERE id = ? AND status = 'locked'`)
-    .get(revision.base_commitment_id) as { quote_id: string } | undefined;
+    .get(revision.base_commitment_id)) as { quote_id: string } | undefined;
   if (!base) {
     return NextResponse.json({ error: "Base commitment not found" }, { status: 409 });
   }
 
-  db.transaction(() => {
-    db.prepare(`UPDATE revisions SET status = 'cancelled' WHERE id = ?`).run(revision.id);
-    db.prepare(`UPDATE quotes SET status = 'superseded' WHERE id = ?`).run(revision.quote_id);
-    db.prepare(`UPDATE quotes SET status = 'active' WHERE id = ?`).run(base.quote_id);
-    db.prepare(`UPDATE rfqs SET status = 'locked', updated_at = ? WHERE id = ?`).run(
+  await db.transaction(async () => {
+    await db.prepare(`UPDATE revisions SET status = 'cancelled' WHERE id = ?`).run(revision.id);
+    await db.prepare(`UPDATE quotes SET status = 'superseded' WHERE id = ?`).run(revision.quote_id);
+    await db.prepare(`UPDATE quotes SET status = 'active' WHERE id = ?`).run(base.quote_id);
+    await db.prepare(`UPDATE rfqs SET status = 'locked', updated_at = ? WHERE id = ?`).run(
       Date.now(),
       rfqId
     );
-    logAudit(rfqId, "buyer_agent", "revision_cancelled", { revisionId: revision.id });
-  })();
+    await logAudit(rfqId, "buyer_agent", "revision_cancelled", { revisionId: revision.id });
+  });
 
   return NextResponse.json({ ok: true, status: "locked" });
 }

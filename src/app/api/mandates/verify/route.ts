@@ -11,6 +11,6 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "compactJws is required" }, { status: 400 });
   }
-  const result = verifyMandate(parsed.data.compactJws);
+  const result = await verifyMandate(parsed.data.compactJws);
   return NextResponse.json(result, { status: result.valid ? 200 : 400 });
 }

@@ -45,7 +45,7 @@ export async function POST(
         { status: 422 }
       );
     }
-    const session = getNegotiation(id);
+    const session = await getNegotiation(id);
     if (session.status !== "agreed") {
       return NextResponse.json(
         { error: "Negotiation must be agreed before checkout completion" },
@@ -53,14 +53,15 @@ export async function POST(
       );
     }
     for (const token of [input.checkout_mandate, input.payment_mandate]) {
-      if (token && !verifyMandate(token).valid) {
+      if (token && !(await verifyMandate(token)).valid) {
         return NextResponse.json({ error: "Invalid AP2 mandate" }, { status: 400 });
       }
     }
     const order = await createCommerceOrder(id);
+    const checkout = await toUcpCheckout(id);
     return NextResponse.json(
       {
-        ...toUcpCheckout(id),
+        ...checkout,
         completion: {
           status: order.status,
           orderId: order.id,

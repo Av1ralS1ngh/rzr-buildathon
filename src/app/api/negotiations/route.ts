@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
       ...body,
       idempotencyKey,
     }) as CreateNegotiationInput;
-    return NextResponse.json(createNegotiation(input), { status: 201 });
+    return NextResponse.json(await createNegotiation(input), { status: 201 });
   } catch (error) {
     return apiError(error);
   }

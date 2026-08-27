@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       (typeof command.payload.sessionId === "string"
         ? command.payload.sessionId
         : undefined);
-    const result = executeAction(
+    const result = await executeAction(
       command.action,
       command.payload,
       contextId,
@@ -118,14 +118,14 @@ export async function POST(req: NextRequest) {
   }
 }
 
-function executeAction(
+async function executeAction(
   action: z.infer<typeof requestSchema>["message"]["parts"][0]["data"]["action"],
   payload: Record<string, unknown>,
   contextId: string | undefined,
   messageId: string
 ) {
   if (action === "negotiation.create") {
-    return createNegotiation(
+    return await createNegotiation(
       createNegotiationSchema.parse({
         ...payload,
         idempotencyKey: `a2a:${messageId}`,
@@ -136,15 +136,15 @@ function executeAction(
     contextId ??
     (typeof payload.sessionId === "string" ? payload.sessionId : undefined);
   if (!sessionId) throw new Error("contextId or payload.sessionId is required");
-  if (action === "negotiation.get") return getNegotiation(sessionId);
-  if (action === "negotiation.auto") return runAutonomousNegotiation(sessionId);
-  if (action === "bundle.list") return { bundles: generateBundleOptions(sessionId) };
+  if (action === "negotiation.get") return await getNegotiation(sessionId);
+  if (action === "negotiation.auto") return await runAutonomousNegotiation(sessionId);
+  if (action === "bundle.list") return { bundles: await generateBundleOptions(sessionId) };
   if (action === "bundle.select") {
     const bundleId = z.string().min(1).parse(payload.bundleId);
-    return { offer: selectBundleOption(sessionId, bundleId) };
+    return { offer: await selectBundleOption(sessionId, bundleId) };
   }
   if (action === "negotiation.counter") {
-    return counterNegotiation(
+    return await counterNegotiation(
       sessionId,
       counterOfferSchema.parse({
         ...payload,
@@ -156,5 +156,5 @@ function executeAction(
     ...payload,
     idempotencyKey: `a2a:${messageId}`,
   });
-  return acceptSellerOffer(sessionId, accepted.offerId, accepted.idempotencyKey);
+  return await acceptSellerOffer(sessionId, accepted.offerId, accepted.idempotencyKey);
 }

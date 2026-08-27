@@ -16,13 +16,13 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> }
 ) {
   const { id: rfqId } = await ctx.params;
-  const quote = db
+  const quote = (await db
     .prepare(
       `SELECT * FROM quotes
        WHERE rfq_id = ? AND status = 'active'
        ORDER BY created_at DESC LIMIT 1`
     )
-    .get(rfqId) as QuoteRow | undefined;
+    .get(rfqId)) as QuoteRow | undefined;
 
   if (!quote) {
     return NextResponse.json(
@@ -38,7 +38,9 @@ export async function POST(
     );
   }
 
-  const rfq = db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(rfqId) as RfqRow | undefined;
+  const rfq = (await db.prepare(`SELECT * FROM rfqs WHERE id = ?`).get(rfqId)) as
+    | RfqRow
+    | undefined;
   if (!rfq) {
     return NextResponse.json({ error: "RFQ not found" }, { status: 404 });
   }
@@ -55,22 +57,23 @@ export async function POST(
     );
   }
 
-  const revision = rfq.status === "revision_proposed"
-    ? (db
-        .prepare(
-          `SELECT id, base_commitment_id, spec_json, requires_approval
+  const revision =
+    rfq.status === "revision_proposed"
+      ? ((await db
+          .prepare(
+            `SELECT id, base_commitment_id, spec_json, requires_approval
            FROM revisions
            WHERE rfq_id = ? AND quote_id = ? AND status = 'proposed'`
-        )
-        .get(rfqId, quote.id) as
-        | {
-            id: string;
-            base_commitment_id: string;
-            spec_json: string;
-            requires_approval: number;
-          }
-        | undefined)
-    : undefined;
+          )
+          .get(rfqId, quote.id)) as
+          | {
+              id: string;
+              base_commitment_id: string;
+              spec_json: string;
+              requires_approval: number;
+            }
+          | undefined)
+      : undefined;
   if (rfq.status === "revision_proposed" && !revision) {
     return NextResponse.json(
       { error: "Active revision does not match the active quote" },
@@ -109,13 +112,13 @@ export async function POST(
     totalPaise: quote.total_paise,
   });
 
-  const existingCommitment = db
+  const existingCommitment = (await db
     .prepare(
       `SELECT * FROM commitments
        WHERE quote_id = ? AND status <> 'superseded'
        ORDER BY created_at DESC LIMIT 1`
     )
-    .get(quote.id) as CommitmentRow | undefined;
+    .get(quote.id)) as CommitmentRow | undefined;
   if (existingCommitment?.status === "locked") {
     return NextResponse.json(
       { error: "This quote has already been paid", commitmentId: existingCommitment.id },
@@ -132,50 +135,52 @@ export async function POST(
   }
 
   const commitmentId = existingCommitment?.id ?? newId("cmt");
-  const versionRow = db
+  const versionRow = (await db
     .prepare(`SELECT MAX(version) as v FROM commitments WHERE rfq_id = ?`)
-    .get(rfqId) as { v: number | null } | undefined;
+    .get(rfqId)) as { v: number | null } | undefined;
   const version = (versionRow?.v ?? 0) + 1;
 
   const depositPaise = quote.deposit_paise;
   const previous = revision
     ? { id: revision.base_commitment_id }
-    : db
-    .prepare(
-      `SELECT id FROM commitments
+    : ((await db
+        .prepare(
+          `SELECT id FROM commitments
        WHERE rfq_id = ? AND status = 'locked'
        ORDER BY version DESC LIMIT 1`
-    )
-    .get(rfqId) as { id: string } | undefined;
+        )
+        .get(rfqId)) as { id: string } | undefined);
 
   if (!existingCommitment) {
     try {
-      db.prepare(
-        `INSERT INTO commitments (
+      await db
+        .prepare(
+          `INSERT INTO commitments (
           id, rfq_id, version, spec_hash, artwork_hash, quote_id, status,
           razorpay_order_id, razorpay_payment_id, previous_commitment_id,
           created_at, commitment_hash, amount_paise
         ) VALUES (?, ?, ?, ?, ?, ?, 'preparing', NULL, NULL, ?, ?, ?, ?)`
-      ).run(
-        commitmentId,
-        rfqId,
-        version,
-        quote.spec_hash,
-        rfq.artwork_hash,
-        quote.id,
-        previous?.id ?? null,
-        Date.now(),
-        commitmentHash,
-        depositPaise
-      );
+        )
+        .run(
+          commitmentId,
+          rfqId,
+          version,
+          quote.spec_hash,
+          rfq.artwork_hash,
+          quote.id,
+          previous?.id ?? null,
+          Date.now(),
+          commitmentHash,
+          depositPaise
+        );
     } catch {
-      const concurrent = db
+      const concurrent = (await db
         .prepare(
           `SELECT * FROM commitments
            WHERE quote_id = ? AND status <> 'superseded'
            ORDER BY created_at DESC LIMIT 1`
         )
-        .get(quote.id) as CommitmentRow | undefined;
+        .get(quote.id)) as CommitmentRow | undefined;
       if (concurrent?.razorpay_order_id) {
         return NextResponse.json(checkoutResponse(concurrent, depositPaise));
       }
@@ -184,26 +189,30 @@ export async function POST(
   }
 
   if (depositPaise === 0) {
-    db.transaction(() => {
-      db.prepare(
-        `UPDATE commitments
+    await db.transaction(async () => {
+      await db
+        .prepare(
+          `UPDATE commitments
          SET status = 'locked', commitment_hash = ?, amount_paise = 0
          WHERE id = ?`
-      ).run(commitmentHash, commitmentId);
+        )
+        .run(commitmentHash, commitmentId);
       if (revision) {
-        db.prepare(`UPDATE revisions SET status = 'accepted' WHERE id = ?`).run(
+        await db.prepare(`UPDATE revisions SET status = 'accepted' WHERE id = ?`).run(
           revision.id
         );
-        db.prepare(
-          `UPDATE rfqs SET spec_json = ?, status = 'locked', updated_at = ? WHERE id = ?`
-        ).run(revision.spec_json, Date.now(), rfqId);
+        await db
+          .prepare(
+            `UPDATE rfqs SET spec_json = ?, status = 'locked', updated_at = ? WHERE id = ?`
+          )
+          .run(revision.spec_json, Date.now(), rfqId);
       }
-      logAudit(rfqId, "system", "revision_locked_without_additional_payment", {
+      await logAudit(rfqId, "system", "revision_locked_without_additional_payment", {
         revisionId: revision?.id,
         commitmentId,
         commitmentHash,
       });
-    })();
+    });
     return NextResponse.json({
       commitmentId,
       commitmentHash,
@@ -235,23 +244,26 @@ export async function POST(
         ).id
       : `order_mock_${commitmentId}`;
 
-    db.transaction(() => {
-      db.prepare(
-        `UPDATE commitments
+    await db.transaction(async () => {
+      await db
+        .prepare(
+          `UPDATE commitments
          SET status = 'payment_pending', razorpay_order_id = ?, commitment_hash = ?,
              amount_paise = ?
          WHERE id = ?`
-      ).run(orderId, commitmentHash, depositPaise, commitmentId);
-      db.prepare(`UPDATE rfqs SET status = 'payment_pending', updated_at = ? WHERE id = ?`)
+        )
+        .run(orderId, commitmentHash, depositPaise, commitmentId);
+      await db
+        .prepare(`UPDATE rfqs SET status = 'payment_pending', updated_at = ? WHERE id = ?`)
         .run(Date.now(), rfqId);
-      logAudit(rfqId, "razorpay", "order_created", {
+      await logAudit(rfqId, "razorpay", "order_created", {
         orderId,
         depositPaise,
         commitmentId,
         commitmentHash,
         mock,
       });
-    })();
+    });
 
     return NextResponse.json({
       commitmentId,
@@ -264,16 +276,16 @@ export async function POST(
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to create payment order";
-    db.transaction(() => {
-      db.prepare(`UPDATE commitments SET status = 'checkout_failed' WHERE id = ?`).run(
+    await db.transaction(async () => {
+      await db.prepare(`UPDATE commitments SET status = 'checkout_failed' WHERE id = ?`).run(
         commitmentId
       );
-      db.prepare(`UPDATE rfqs SET status = 'quoted', updated_at = ? WHERE id = ?`).run(
+      await db.prepare(`UPDATE rfqs SET status = 'quoted', updated_at = ? WHERE id = ?`).run(
         Date.now(),
         rfqId
       );
-      logAudit(rfqId, "razorpay", "order_creation_failed", { commitmentId, message });
-    })();
+      await logAudit(rfqId, "razorpay", "order_creation_failed", { commitmentId, message });
+    });
     return NextResponse.json({ error: message }, { status: 502 });
   }
 }

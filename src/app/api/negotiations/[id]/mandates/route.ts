@@ -19,7 +19,7 @@ export async function GET(
       authorized && requested && ["buyer", "seller", "processor", "shared"].includes(requested)
         ? requested
         : "shared";
-    return NextResponse.json({ mandates: listMandates(id, audience) });
+    return NextResponse.json({ mandates: await listMandates(id, audience) });
   } catch (error) {
     return apiError(error);
   }
