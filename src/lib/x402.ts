@@ -94,6 +94,9 @@ export async function authorizeCapability(
       return { ok: false, mode: "none", error: "Malformed payment payload" };
     }
     const payload = parsedPayload.data;
+    if (payload.x402Version !== 2) {
+      return { ok: false, mode: "none", error: "Only x402 v2 payments are accepted" };
+    }
     const requirements = paymentRequirements(capability);
     const facilitatorToken = process.env.X402_FACILITATOR_TOKEN;
     const client = new HTTPFacilitatorClient({
