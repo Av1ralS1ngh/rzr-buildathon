@@ -97,11 +97,163 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS merchants (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    currency TEXT NOT NULL CHECK (currency = 'INR'),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS merchant_products (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    sku TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    description TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    currency TEXT NOT NULL CHECK (currency = 'INR'),
+    cost_paise INTEGER NOT NULL CHECK (cost_paise >= 0),
+    list_price_paise INTEGER NOT NULL,
+    target_price_paise INTEGER NOT NULL,
+    floor_price_paise INTEGER NOT NULL,
+    min_quantity INTEGER NOT NULL CHECK (min_quantity > 0),
+    max_quantity INTEGER NOT NULL CHECK (max_quantity >= min_quantity),
+    quantity_step INTEGER NOT NULL DEFAULT 1 CHECK (quantity_step > 0),
+    active INTEGER NOT NULL DEFAULT 1,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (merchant_id, sku),
+    CHECK (
+      list_price_paise >= target_price_paise
+      AND target_price_paise >= floor_price_paise
+      AND floor_price_paise >= cost_paise
+    )
+  );
+
+  CREATE TABLE IF NOT EXISTS seller_policies (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active', 'superseded')),
+    max_rounds INTEGER NOT NULL CHECK (max_rounds BETWEEN 1 AND 20),
+    offer_ttl_seconds INTEGER NOT NULL CHECK (offer_ttl_seconds BETWEEN 60 AND 604800),
+    concession_bps_per_round INTEGER NOT NULL CHECK (concession_bps_per_round BETWEEN 0 AND 5000),
+    max_discount_bps INTEGER NOT NULL CHECK (max_discount_bps BETWEEN 0 AND 9000),
+    min_bundle_margin_bps INTEGER NOT NULL CHECK (min_bundle_margin_bps BETWEEN 0 AND 9000),
+    deposit_bps INTEGER NOT NULL CHECK (deposit_bps BETWEEN 0 AND 10000),
+    created_at INTEGER NOT NULL,
+    UNIQUE (merchant_id, version)
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_sessions (
+    id TEXT PRIMARY KEY,
+    merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
+    buyer_agent_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+      status IN ('open', 'agreed', 'rejected', 'expired', 'cancelled')
+    ),
+    currency TEXT NOT NULL CHECK (currency = 'INR'),
+    seller_policy_id TEXT NOT NULL REFERENCES seller_policies(id),
+    current_round INTEGER NOT NULL DEFAULT 0,
+    accepted_offer_id TEXT,
+    delivery_date TEXT,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_private_terms (
+    session_id TEXT PRIMARY KEY REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    buyer_max_total_paise INTEGER NOT NULL CHECK (buyer_max_total_paise > 0),
+    buyer_max_deposit_paise INTEGER,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_requirements (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    product_id TEXT NOT NULL REFERENCES merchant_products(id),
+    min_quantity INTEGER NOT NULL CHECK (min_quantity >= 0),
+    target_quantity INTEGER NOT NULL CHECK (target_quantity >= min_quantity),
+    max_quantity INTEGER NOT NULL CHECK (max_quantity >= target_quantity),
+    required INTEGER NOT NULL DEFAULT 1,
+    substitutions_allowed INTEGER NOT NULL DEFAULT 0,
+    priority INTEGER NOT NULL DEFAULT 50 CHECK (priority BETWEEN 0 AND 100),
+    created_at INTEGER NOT NULL,
+    UNIQUE (session_id, product_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_offers (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL,
+    round INTEGER NOT NULL,
+    actor TEXT NOT NULL CHECK (actor IN ('buyer', 'seller')),
+    parent_offer_id TEXT REFERENCES negotiation_offers(id),
+    status TEXT NOT NULL CHECK (
+      status IN ('active', 'countered', 'accepted', 'rejected', 'expired')
+    ),
+    total_paise INTEGER NOT NULL CHECK (total_paise >= 0),
+    delivery_date TEXT,
+    deposit_bps INTEGER NOT NULL CHECK (deposit_bps BETWEEN 0 AND 10000),
+    explanation TEXT NOT NULL,
+    terms_json TEXT NOT NULL DEFAULT '{}',
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE (session_id, sequence)
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_offer_items (
+    id TEXT PRIMARY KEY,
+    offer_id TEXT NOT NULL REFERENCES negotiation_offers(id) ON DELETE CASCADE,
+    product_id TEXT NOT NULL REFERENCES merchant_products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    unit_price_paise INTEGER NOT NULL CHECK (unit_price_paise >= 0),
+    cost_snapshot_paise INTEGER NOT NULL CHECK (cost_snapshot_paise >= 0),
+    list_snapshot_paise INTEGER NOT NULL CHECK (list_snapshot_paise >= cost_snapshot_paise),
+    target_snapshot_paise INTEGER NOT NULL CHECK (target_snapshot_paise >= floor_snapshot_paise),
+    floor_snapshot_paise INTEGER NOT NULL CHECK (floor_snapshot_paise >= cost_snapshot_paise),
+    source TEXT NOT NULL CHECK (source IN ('requested', 'cross_sell', 'substitute')),
+    created_at INTEGER NOT NULL,
+    UNIQUE (offer_id, product_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_events (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS idempotency_keys (
+    scope TEXT NOT NULL,
+    key TEXT NOT NULL,
+    resource_id TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (scope, key)
+  );
+
   CREATE INDEX IF NOT EXISTS idx_quotes_rfq_created ON quotes(rfq_id, created_at DESC);
   CREATE INDEX IF NOT EXISTS idx_commitments_rfq_version ON commitments(rfq_id, version DESC);
   CREATE INDEX IF NOT EXISTS idx_receipts_rfq_created ON capability_receipts(rfq_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_audit_rfq_created ON audit_events(rfq_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_revisions_rfq_created ON revisions(rfq_id, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_products_merchant_category
+    ON merchant_products(merchant_id, category, active);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_seller_policy_active
+    ON seller_policies(merchant_id) WHERE status = 'active';
+  CREATE INDEX IF NOT EXISTS idx_negotiations_merchant_status
+    ON negotiation_sessions(merchant_id, status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_negotiation_offers_session
+    ON negotiation_offers(session_id, sequence);
+  CREATE INDEX IF NOT EXISTS idx_negotiation_events_session
+    ON negotiation_events(session_id, created_at);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_commitments_order
     ON commitments(razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
 `);
@@ -118,6 +270,8 @@ const migrations = [
   `ALTER TABLE commitments ADD COLUMN commitment_hash TEXT`,
   `ALTER TABLE commitments ADD COLUMN amount_paise INTEGER NOT NULL DEFAULT 0`,
   `ALTER TABLE webhook_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'unknown'`,
+  `ALTER TABLE negotiation_offer_items ADD COLUMN list_snapshot_paise INTEGER NOT NULL DEFAULT 0`,
+  `ALTER TABLE negotiation_offer_items ADD COLUMN target_snapshot_paise INTEGER NOT NULL DEFAULT 0`,
 ];
 
 for (const migration of migrations) {
