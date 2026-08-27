@@ -15,10 +15,20 @@ import {
   generateBundleOptions,
   selectBundleOption,
 } from "@/lib/commerce/bundle-optimizer";
+import {
+  getMandate,
+  listMandates,
+  verifyMandate,
+} from "@/lib/commerce/mandates";
+import { createCommerceOrder } from "@/lib/commerce/commerce-order";
+import { PUT as confirmPayment } from "@/app/api/razorpay/webhook/route";
+import { NextRequest } from "next/server";
 
 beforeEach(() => {
   db.exec(`
     DELETE FROM idempotency_keys;
+    DELETE FROM commerce_orders;
+    DELETE FROM mandate_artifacts;
     DELETE FROM bundle_option_items;
     DELETE FROM bundle_options;
     DELETE FROM negotiation_events;
@@ -135,6 +145,47 @@ describe("deterministic negotiation engine", () => {
   it("does not generate cross-sells without explicit buyer permission", () => {
     const session = createExampleNegotiation();
     expect(generateBundleOptions(session.id)).toEqual([]);
+  });
+
+  it("creates and verifies an open-to-closed mandate chain", () => {
+    const session = createExampleNegotiation();
+    const openCheckout = getMandate(session.id, "checkout", "open");
+    expect(openCheckout.vct).toBe("mandate.checkout.open.1");
+    expect(verifyMandate(openCheckout.compactJws).valid).toBe(true);
+    expect(JSON.stringify(listMandates(session.id))).not.toContain(
+      "buyerMaxTotalPaise"
+    );
+
+    const agreed = runAutonomousNegotiation(session.id);
+    const closedCheckout = getMandate(agreed.id, "checkout", "closed");
+    const closedPayment = getMandate(agreed.id, "payment", "closed");
+    expect(closedCheckout.parentMandateId).toBe(openCheckout.id);
+    expect(closedPayment.payload).toMatchObject({
+      paymentAmount: { currency: "INR", amount: 1_500_000 },
+    });
+    expect(verifyMandate(closedPayment.compactJws).valid).toBe(true);
+  });
+
+  it("binds the accepted deal and mandates to an idempotent payment order", async () => {
+    const session = createExampleNegotiation();
+    const agreed = runAutonomousNegotiation(session.id);
+    const first = await createCommerceOrder(agreed.id);
+    const repeated = await createCommerceOrder(agreed.id);
+    expect(first.razorpayOrderId).toMatch(/^order_mock_/);
+    expect(repeated.razorpayOrderId).toBe(first.razorpayOrderId);
+    expect(repeated.reused).toBe(true);
+
+    const confirmation = await confirmPayment(
+      new NextRequest("http://localhost:43123/api/razorpay/webhook", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId: first.razorpayOrderId }),
+      })
+    );
+    expect(confirmation.status).toBe(200);
+    const receipt = getMandate(agreed.id, "payment_receipt", "receipt");
+    expect(receipt.vct).toBe("speclock.payment-receipt.1");
+    expect(verifyMandate(receipt.compactJws).valid).toBe(true);
   });
 });
 

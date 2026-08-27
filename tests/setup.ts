@@ -11,3 +11,4 @@ delete process.env.RAZORPAY_WEBHOOK_SECRET;
 process.env.ALLOW_MOCK_PAYMENTS = "true";
 process.env.SPELOCK_INTERNAL_SECRET = "test-internal-secret";
 process.env.X402_DEMO_AGENT_KEY = "test-demo-key";
+process.env.MANDATE_SIGNING_SECRET = "test-only-mandate-signing-secret";

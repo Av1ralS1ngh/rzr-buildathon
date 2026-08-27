@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/audit";
 import { clientPaymentConfirmationSchema, validationMessage } from "@/lib/validation";
 import crypto from "crypto";
 import type { CommitmentRow } from "@/lib/db-types";
+import { markCommerceOrderPaid } from "@/lib/commerce/commerce-order";
 
 export const runtime = "nodejs";
 
@@ -113,6 +114,25 @@ function markOrderPaid(
     .get(orderId) as CommitmentRow | undefined;
 
   if (!commitment) {
+    try {
+      const commerceResult = markCommerceOrderPaid({
+        razorpayOrderId: orderId,
+        paymentId: paymentId ?? `pay_mock_${orderId}`,
+        amountPaise,
+        currency,
+      });
+      if (commerceResult) {
+        return { ok: true, duplicate: commerceResult.duplicate };
+      }
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Negotiated payment could not be applied",
+      };
+    }
     return { ok: false, error: "Unknown Razorpay order", status: 404 };
   }
   if (currency && currency !== "INR") {

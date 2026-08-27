@@ -21,6 +21,7 @@ import type {
   NegotiationOffer,
   SellerPolicy,
 } from "./types";
+import { createClosedMandates, createOpenMandates } from "./mandates";
 
 type SessionRow = {
   id: string;
@@ -174,6 +175,7 @@ export function createNegotiation(input: CreateNegotiationInput) {
         openingOfferId: offerId,
         requestedProducts: requirements.map((item) => item.productId),
       });
+      createOpenMandates(sessionId);
       if (input.idempotencyKey) {
         insertIdempotency(
           "negotiation.create",
@@ -292,6 +294,7 @@ export function counterNegotiation(
         acceptedOfferId: buyerOfferId,
         round: nextRound,
       });
+      createClosedMandates(sessionId, buyerOfferId);
       result = {
         outcome: "accepted",
         acceptedOfferId: buyerOfferId,
@@ -412,6 +415,7 @@ export function acceptSellerOffer(
       acceptedOfferId: offerId,
       round: offer.round,
     });
+      createClosedMandates(sessionId, offerId);
       if (idempotencyKey) {
         insertIdempotency(scope, idempotencyKey, sessionId);
       }

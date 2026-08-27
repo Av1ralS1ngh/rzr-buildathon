@@ -277,6 +277,48 @@ db.exec(`
     UNIQUE (bundle_id, product_id)
   );
 
+  CREATE TABLE IF NOT EXISTS mandate_artifacts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    mandate_type TEXT NOT NULL,
+    vct TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('open', 'closed', 'receipt', 'revoked')),
+    visibility TEXT NOT NULL CHECK (
+      visibility IN ('buyer', 'seller', 'processor', 'shared')
+    ),
+    issuer TEXT NOT NULL,
+    audience TEXT NOT NULL,
+    parent_mandate_id TEXT REFERENCES mandate_artifacts(id),
+    payload_json TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    compact_jws TEXT NOT NULL,
+    algorithm TEXT NOT NULL CHECK (algorithm = 'ES256'),
+    key_id TEXT NOT NULL,
+    issued_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    verified_at INTEGER,
+    created_at INTEGER NOT NULL,
+    UNIQUE (session_id, mandate_type, state)
+  );
+
+  CREATE TABLE IF NOT EXISTS commerce_orders (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL UNIQUE REFERENCES negotiation_sessions(id),
+    accepted_offer_id TEXT NOT NULL REFERENCES negotiation_offers(id),
+    checkout_mandate_id TEXT NOT NULL REFERENCES mandate_artifacts(id),
+    payment_mandate_id TEXT NOT NULL REFERENCES mandate_artifacts(id),
+    status TEXT NOT NULL CHECK (
+      status IN ('preparing', 'payment_pending', 'paid', 'failed', 'refunded')
+    ),
+    currency TEXT NOT NULL CHECK (currency = 'INR'),
+    amount_paise INTEGER NOT NULL CHECK (amount_paise >= 0),
+    commitment_hash TEXT NOT NULL,
+    razorpay_order_id TEXT UNIQUE,
+    razorpay_payment_id TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS idempotency_keys (
     scope TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -305,6 +347,12 @@ db.exec(`
     ON product_relationships(source_product_id, relationship_type, relevance_score DESC);
   CREATE INDEX IF NOT EXISTS idx_bundle_options_session
     ON bundle_options(session_id, status, created_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_mandates_session
+    ON mandate_artifacts(session_id, issued_at);
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_mandates_payload_hash
+    ON mandate_artifacts(payload_hash, mandate_type);
+  CREATE INDEX IF NOT EXISTS idx_commerce_orders_status
+    ON commerce_orders(status, created_at);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_commitments_order
     ON commitments(razorpay_order_id) WHERE razorpay_order_id IS NOT NULL;
 `);
