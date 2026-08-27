@@ -615,6 +615,34 @@ export function getOffer(offerId: string): NegotiationOffer {
   return mapOffer(row);
 }
 
+export function cancelNegotiation(sessionId: string) {
+  db.transaction(() => {
+    const session = db
+      .prepare(`SELECT status FROM negotiation_sessions WHERE id = ?`)
+      .get(sessionId) as { status: string } | undefined;
+    if (!session) throw new Error("Negotiation not found");
+    if (session.status === "cancelled") return;
+    if (session.status !== "open") {
+      throw new Error(`Negotiation cannot be cancelled while '${session.status}'`);
+    }
+    const now = Date.now();
+    db.prepare(
+      `UPDATE negotiation_sessions
+       SET status = 'cancelled', updated_at = ? WHERE id = ? AND status = 'open'`
+    ).run(now, sessionId);
+    db.prepare(
+      `UPDATE negotiation_offers
+       SET status = 'rejected' WHERE session_id = ? AND status = 'active'`
+    ).run(sessionId);
+    db.prepare(
+      `UPDATE bundle_options
+       SET status = 'dismissed' WHERE session_id = ? AND status = 'active'`
+    ).run(sessionId);
+    insertEvent(sessionId, "negotiation.cancelled", {});
+  })();
+  return getNegotiation(sessionId);
+}
+
 function mapOffer(row: OfferRow): NegotiationOffer {
   const items = (
     db
