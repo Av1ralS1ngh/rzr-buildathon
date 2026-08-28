@@ -197,7 +197,6 @@ export default function RfqPage({ params }: { params: Promise<{ id: string }> })
             orderId: response.razorpay_order_id,
             paymentId: response.razorpay_payment_id,
             signature: response.razorpay_signature,
-            rfqId,
           }),
         });
         if (!confirmation.ok) {
