@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { readApiJson } from "@/lib/http";
 
 const SAMPLE_RFQ =
   "I need 10,000 waterproof mango pickle jar labels 50x30mm, delivery within 10 days to 560001, budget ₹25,000. Labels will be on oil jars in refrigeration.";
@@ -23,7 +24,7 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rawText }),
       });
-      const data = await res.json();
+      const data = await readApiJson<{ id: string; error?: string }>(res);
       if (!res.ok) throw new Error(data.error ?? "Failed");
       setRfqId(data.id);
       router.push(`/rfq/${data.id}`);

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Script from "next/script";
 import { SpecEditor, type EditableSpec } from "@/components/spec-editor";
+import { readApiJson } from "@/lib/http";
 
 type RfqDetail = {
   rfq: {
@@ -63,7 +64,7 @@ export default function RfqPage({ params }: { params: Promise<{ id: string }> })
   const load = useCallback(async () => {
     if (!rfqId) return;
     const res = await fetch(`/api/rfq/${rfqId}`, { cache: "no-store" });
-    const body = await res.json();
+    const body = await readApiJson<RfqDetail & { error?: string }>(res);
     if (!res.ok) throw new Error(body.error ?? "Unable to load RFQ");
     setData(body);
     setSpecDraft(body.revision?.status === "proposed" ? body.revision.spec : body.rfq.spec ?? {});
@@ -83,7 +84,7 @@ export default function RfqPage({ params }: { params: Promise<{ id: string }> })
     setError(null);
     try {
       const res = await fetch(path, init);
-      const body = await res.json();
+      const body = await readApiJson<{ error?: string }>(res);
       if (!res.ok) throw new Error(body.error ?? "Request failed");
       await load();
       return body;
@@ -149,9 +150,16 @@ export default function RfqPage({ params }: { params: Promise<{ id: string }> })
     const checkoutRes = await fetch(`/api/rfq/${rfqId}/checkout`, {
       method: "POST",
     });
-    const checkout = await checkoutRes.json();
+    const checkout = await readApiJson<{
+      error?: string;
+      noPaymentRequired?: boolean;
+      mock?: boolean;
+      orderId?: string;
+      keyId?: string;
+      amountPaise?: number;
+    }>(checkoutRes);
     if (!checkoutRes.ok) {
-      setError(checkout.error);
+      setError(checkout.error ?? "Checkout failed");
       setLoading(false);
       return;
     }
@@ -200,7 +208,7 @@ export default function RfqPage({ params }: { params: Promise<{ id: string }> })
           }),
         });
         if (!confirmation.ok) {
-          const body = await confirmation.json();
+          const body = await readApiJson<{ error?: string }>(confirmation);
           setError(body.error ?? "Payment confirmation failed");
           setLoading(false);
           return;

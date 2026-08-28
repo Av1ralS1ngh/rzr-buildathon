@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import db from "@/lib/db";
+import { handleRoute } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 
 export async function GET() {
-  const rfqs = await db
-    .prepare(
-      `SELECT r.id, r.status, r.raw_text, r.created_at,
+  return handleRoute(async () => {
+    const rfqs = await db
+      .prepare(
+        `SELECT r.id, r.status, r.raw_text, r.created_at,
               q.total_paise, q.deposit_paise,
               c.status as commitment_status
        FROM rfqs r
@@ -22,8 +24,9 @@ export async function GET() {
        )
        ORDER BY r.created_at DESC
        LIMIT 50`
-    )
-    .all();
+      )
+      .all();
 
-  return NextResponse.json({ rfqs });
+    return NextResponse.json({ rfqs });
+  });
 }

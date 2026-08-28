@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { readApiJson } from "@/lib/http";
 
 type MerchantRfq = {
   id: string;
@@ -21,7 +22,9 @@ export default function MerchantPage() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/merchant/rfqs", { cache: "no-store" });
-      const body = await response.json();
+      const body = await readApiJson<{ rfqs?: MerchantRfq[]; error?: string }>(
+        response
+      );
       if (!response.ok) throw new Error(body.error ?? "Unable to load RFQs");
       setRfqs(body.rfqs ?? []);
     } catch (cause) {
@@ -41,7 +44,7 @@ export default function MerchantPage() {
     setLoading(true);
     setError(null);
     const response = await fetch(`/api/rfq/${id}/approve`, { method: "POST" });
-    const body = await response.json();
+    const body = await readApiJson<{ error?: string }>(response);
     if (!response.ok) {
       setError(body.error ?? "Approval failed");
       setLoading(false);

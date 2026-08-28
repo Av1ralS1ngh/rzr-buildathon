@@ -13,10 +13,18 @@ import {
   validationMessage,
 } from "@/lib/validation";
 import { logAudit } from "@/lib/audit";
+import { handleRoute } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 
 export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  return handleRoute(() => getRfq(_req, ctx));
+}
+
+async function getRfq(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
@@ -119,6 +127,13 @@ export async function GET(
 }
 
 export async function PATCH(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  return handleRoute(() => patchRfq(req, ctx));
+}
+
+async function patchRfq(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {

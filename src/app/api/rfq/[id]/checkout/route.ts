@@ -8,10 +8,18 @@ import type { CommitmentRow, QuoteRow, RfqRow } from "@/lib/db-types";
 import { checkoutAllowed } from "@/lib/state-machine";
 import { hashSpec } from "@/lib/commitment";
 import { labelSpecSchema } from "@/lib/validation";
+import { handleRoute } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 
 export async function POST(
+  _req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  return handleRoute(() => createCheckout(_req, ctx));
+}
+
+async function createCheckout(
   _req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {

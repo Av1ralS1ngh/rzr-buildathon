@@ -10,10 +10,15 @@ import { clientPaymentConfirmationSchema, validationMessage } from "@/lib/valida
 import crypto from "crypto";
 import type { CommitmentRow } from "@/lib/db-types";
 import { markCommerceOrderPaid } from "@/lib/commerce/commerce-order";
+import { handleRoute } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  return handleRoute(() => handleWebhook(req));
+}
+
+async function handleWebhook(req: NextRequest) {
   const rawBody = await req.text();
   const signature = req.headers.get("x-razorpay-signature") ?? "";
   let mockMode: boolean;
@@ -69,6 +74,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PUT(req: NextRequest) {
+  return handleRoute(() => confirmClientPayment(req));
+}
+
+async function confirmClientPayment(req: NextRequest) {
   const parsed = clientPaymentConfirmationSchema.safeParse(
     await req.json().catch(() => null)
   );

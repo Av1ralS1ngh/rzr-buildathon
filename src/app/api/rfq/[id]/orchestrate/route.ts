@@ -7,10 +7,18 @@ import { logAudit } from "@/lib/audit";
 import type { RfqRow } from "@/lib/db-types";
 import type { RfqStatus } from "@/lib/types";
 import { orchestrationSchema, validationMessage } from "@/lib/validation";
+import { handleRoute } from "@/lib/api-response";
 
 export const runtime = "nodejs";
 
 export async function POST(
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
+) {
+  return handleRoute(() => orchestrate(req, ctx));
+}
+
+async function orchestrate(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {

@@ -5,6 +5,8 @@ process.env.SPELOCK_DB_PATH = path.join(
   os.tmpdir(),
   `speclock-test-${process.pid}.db`
 );
+delete process.env.DATABASE_URL;
+delete process.env.DATABASE_URL_UNPOOLED;
 delete process.env.RAZORPAY_KEY_ID;
 delete process.env.RAZORPAY_KEY_SECRET;
 delete process.env.RAZORPAY_WEBHOOK_SECRET;

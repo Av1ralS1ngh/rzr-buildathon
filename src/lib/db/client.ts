@@ -1,6 +1,10 @@
 import { AsyncLocalStorage } from "async_hooks";
-import Database from "better-sqlite3";
-import { Pool, type PoolClient } from "@neondatabase/serverless";
+import {
+  neonConfig,
+  Pool,
+  types,
+  type PoolClient,
+} from "@neondatabase/serverless";
 import fs from "fs";
 import path from "path";
 import { SCHEMA_SQL } from "./schema";
@@ -15,6 +19,16 @@ type Statement = {
   all: <T = Record<string, unknown>>(
     ...params: unknown[]
   ) => Promise<T[]>;
+};
+
+type SqliteDatabase = {
+  pragma: (value: string) => unknown;
+  exec: (sql: string) => unknown;
+  prepare: (sql: string) => {
+    run: (...params: unknown[]) => { changes: number };
+    get: (...params: unknown[]) => unknown;
+    all: (...params: unknown[]) => unknown[];
+  };
 };
 
 const SQLITE_MIGRATIONS = [
@@ -36,8 +50,30 @@ const SQLITE_MIGRATIONS = [
   `ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT`,
 ];
 
+types.setTypeParser(20, (value) => Number(value));
+types.setTypeParser(23, (value) => Number(value));
+if (typeof globalThis.WebSocket !== "undefined") {
+  neonConfig.webSocketConstructor = globalThis.WebSocket;
+}
+neonConfig.poolQueryViaFetch = true;
+
+function databaseUrl(): string | undefined {
+  return process.env.DATABASE_URL?.trim() || undefined;
+}
+
 function usePostgres(): boolean {
-  return Boolean(process.env.DATABASE_URL);
+  return Boolean(databaseUrl());
+}
+
+function requirePostgresInProduction(): void {
+  if (
+    !databaseUrl() &&
+    (process.env.VERCEL === "1" || process.env.NODE_ENV === "production")
+  ) {
+    throw new Error(
+      "DATABASE_URL is required in production. SpecLock cannot use SQLite on Vercel."
+    );
+  }
 }
 
 function toPg(sql: string): string {
@@ -46,43 +82,96 @@ function toPg(sql: string): string {
 }
 
 function adaptSql(sql: string): string {
-  if (!usePostgres()) return sql;
-  return toPg(sql);
+  return usePostgres() ? toPg(sql) : sql;
+}
+
+function schemaStatements(): string[] {
+  return SCHEMA_SQL.split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean)
+    .map((statement) => `${statement};`);
+}
+
+function coerceRow<T>(row: T): T {
+  if (!row || typeof row !== "object") return row;
+  const next = { ...(row as Record<string, unknown>) };
+  for (const [key, value] of Object.entries(next)) {
+    if (typeof value === "string" && /^-?\d+$/.test(value)) {
+      if (
+        key.endsWith("_paise") ||
+        key.endsWith("_at") ||
+        key.endsWith("_bps") ||
+        key.endsWith("_seconds") ||
+        [
+          "version",
+          "current_round",
+          "quantity",
+          "min_quantity",
+          "max_quantity",
+          "quantity_step",
+          "active",
+          "required",
+          "requires_approval",
+          "artwork_size",
+          "priority",
+          "sequence",
+          "round",
+          "relevance_score",
+          "attach_quantity",
+          "max_rounds",
+          "substitutions_allowed",
+        ].includes(key)
+      ) {
+        next[key] = Number(value);
+      }
+    }
+  }
+  return next as T;
 }
 
 class DatabaseClient {
-  private sqlite: Database.Database | null = null;
+  private sqlite: SqliteDatabase | null = null;
   private pool: Pool | null = null;
   private schemaReady: Promise<void> | null = null;
   private readonly pgTxStore = new AsyncLocalStorage<PoolClient>();
   private readonly sqliteTxStore = new AsyncLocalStorage<boolean>();
 
-  private getSqlite(): Database.Database {
+  private async getSqlite(): Promise<SqliteDatabase> {
     if (!this.sqlite) {
+      const { default: Database } = await import("better-sqlite3");
       const dataDir = path.join(process.cwd(), "data");
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
       }
       const dbPath =
         process.env.SPELOCK_DB_PATH ?? path.join(dataDir, "speclock.db");
-      this.sqlite = new Database(dbPath);
-      this.sqlite.pragma("journal_mode = WAL");
-      this.sqlite.pragma("foreign_keys = ON");
-      this.sqlite.pragma("busy_timeout = 5000");
+      const sqlite = new Database(dbPath) as unknown as SqliteDatabase;
+      sqlite.pragma("journal_mode = WAL");
+      sqlite.pragma("foreign_keys = ON");
+      sqlite.pragma("busy_timeout = 5000");
+      this.sqlite = sqlite;
     }
     return this.sqlite;
   }
 
   private getPool(): Pool {
+    const connectionString = databaseUrl();
+    if (!connectionString) {
+      throw new Error("DATABASE_URL is not configured");
+    }
     if (!this.pool) {
-      this.pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      this.pool = new Pool({ connectionString, max: 5 });
     }
     return this.pool;
   }
 
   private async initSchema(): Promise<void> {
+    requirePostgresInProduction();
     if (!this.schemaReady) {
-      this.schemaReady = this.bootstrapSchema();
+      this.schemaReady = this.bootstrapSchema().catch((error) => {
+        this.schemaReady = null;
+        throw error;
+      });
     }
     await this.schemaReady;
   }
@@ -90,11 +179,13 @@ class DatabaseClient {
   private async bootstrapSchema(): Promise<void> {
     if (usePostgres()) {
       const pool = this.getPool();
-      await pool.query(SCHEMA_SQL);
+      for (const statement of schemaStatements()) {
+        await pool.query(statement);
+      }
       return;
     }
 
-    const sqlite = this.getSqlite();
+    const sqlite = await this.getSqlite();
     sqlite.exec(SCHEMA_SQL);
 
     for (const migration of SQLITE_MIGRATIONS) {
@@ -137,10 +228,15 @@ class DatabaseClient {
     await this.initSchema();
     if (usePostgres()) {
       const client = this.pgTxStore.getStore() ?? this.getPool();
-      await client.query(adaptSql(sql));
+      for (const statement of sql
+        .split(";")
+        .map((part) => part.trim())
+        .filter(Boolean)) {
+        await client.query(statement);
+      }
       return;
     }
-    this.getSqlite().exec(sql);
+    (await this.getSqlite()).exec(sql);
   }
 
   prepare(sql: string): Statement {
@@ -153,7 +249,7 @@ class DatabaseClient {
           const result = await client.query(adapted, params);
           return { changes: result.rowCount ?? 0 };
         }
-        const result = this.getSqlite().prepare(sql).run(...params);
+        const result = (await this.getSqlite()).prepare(sql).run(...params);
         return { changes: result.changes };
       },
       get: async <T = Record<string, unknown>>(...params: unknown[]) => {
@@ -161,18 +257,20 @@ class DatabaseClient {
         if (usePostgres()) {
           const client = this.pgTxStore.getStore() ?? this.getPool();
           const result = await client.query(adapted, params);
-          return result.rows[0] as T | undefined;
+          return result.rows[0] ? coerceRow(result.rows[0] as T) : undefined;
         }
-        return this.getSqlite().prepare(sql).get(...params) as T | undefined;
+        return (await this.getSqlite()).prepare(sql).get(...params) as
+          | T
+          | undefined;
       },
       all: async <T = Record<string, unknown>>(...params: unknown[]) => {
         await this.initSchema();
         if (usePostgres()) {
           const client = this.pgTxStore.getStore() ?? this.getPool();
           const result = await client.query(adapted, params);
-          return result.rows as T[];
+          return (result.rows as T[]).map((row) => coerceRow(row));
         }
-        return this.getSqlite().prepare(sql).all(...params) as T[];
+        return (await this.getSqlite()).prepare(sql).all(...params) as T[];
       },
     };
   }
@@ -188,13 +286,18 @@ class DatabaseClient {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
-        return await this.pgTxStore.run(client, async () => {
-          const result = await fn();
+        const result = await this.pgTxStore.run(client, async () => {
+          const value = await fn();
           await client.query("COMMIT");
-          return result;
+          return value;
         });
+        return result;
       } catch (error) {
-        await client.query("ROLLBACK");
+        try {
+          await client.query("ROLLBACK");
+        } catch {
+          // The connection may already be closed.
+        }
         throw error;
       } finally {
         client.release();
@@ -205,7 +308,7 @@ class DatabaseClient {
       return await fn();
     }
 
-    const sqlite = this.getSqlite();
+    const sqlite = await this.getSqlite();
     return await this.sqliteTxStore.run(true, async () => {
       sqlite.exec("BEGIN");
       try {

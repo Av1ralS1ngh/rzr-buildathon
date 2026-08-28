@@ -23,3 +23,20 @@ export function apiError(error: unknown): NextResponse {
         : 422;
   return NextResponse.json({ error: message }, { status });
 }
+
+export async function handleRoute(
+  fn: () => Promise<NextResponse>
+): Promise<NextResponse> {
+  try {
+    return await fn();
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Internal server error",
+      },
+      { status: 500 }
+    );
+  }
+}
