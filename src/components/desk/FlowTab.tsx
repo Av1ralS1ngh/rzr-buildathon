@@ -30,6 +30,7 @@ type Ticket = {
   typed: string;
   done: boolean;
   o: number;
+  status?: "pass" | "warn" | "fail";
 };
 
 function prefersReducedMotion() {
@@ -295,6 +296,7 @@ export function FlowTab({
                     done: true,
                     o: 1,
                     pct: 100,
+                    status: r.status,
                   }
                 : x
             )
@@ -868,15 +870,25 @@ export function FlowTab({
                             style={{
                               padding: "3px 8px",
                               borderRadius: 5,
-                              background: "var(--seal-wash)",
-                              color: "var(--seal)",
+                              background:
+                                t.status === "fail"
+                                  ? "var(--flag-wash)"
+                                  : t.status === "warn"
+                                    ? "var(--press-wash)"
+                                    : "var(--seal-wash)",
+                              color:
+                                t.status === "fail"
+                                  ? "var(--flag)"
+                                  : t.status === "warn"
+                                    ? "var(--press)"
+                                    : "var(--seal)",
                               fontFamily: "var(--font-code)",
                               fontSize: 9.5,
                               letterSpacing: "0.12em",
                               animation: "stampIn 220ms var(--ease) both",
                             }}
                           >
-                            PASS
+                            {(t.status ?? "pass").toUpperCase()}
                           </span>
                         )}
                       </span>

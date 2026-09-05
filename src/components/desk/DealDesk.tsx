@@ -27,7 +27,7 @@ export function DealDesk({
 }) {
   const [tab, setTab] = useState<DeskTab>(initialTab);
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  const [intro, setIntro] = useState(false);
+  const [intro, setIntro] = useState(!skipIntro && !initialRfqId);
   const [rfqId, setRfqId] = useState<string | undefined>(initialRfqId);
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
 
@@ -35,7 +35,7 @@ export function DealDesk({
     const stored = window.localStorage.getItem("speclock-theme");
     if (stored === "dark" || stored === "light") setTheme(stored);
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!skipIntro && !initialRfqId && !reduce) setIntro(true);
+    if (reduce || skipIntro || initialRfqId) setIntro(false);
   }, [initialRfqId, skipIntro]);
 
   useEffect(() => {
