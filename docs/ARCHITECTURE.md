@@ -45,6 +45,11 @@ The domain logic lives in `src/lib/commerce` and is independent of A2A, UCP,
 AP2, and ACP transports. Protocol routes are adapters over one transaction and
 policy model, so no transport can bypass private buyer or seller limits.
 
+Buyer and seller rooms (`/agent/buyer/:sessionId`, `/agent/seller/:sessionId`)
+are independent UIs over the same session. A buyer counter can wait
+(`awaitSeller: true`) until the seller room runs price policy. Chat notes are
+stored separately from immutable offers. The LLM still cannot authorize a price.
+
 ## Spec Commitment
 
 Canonical hash over:

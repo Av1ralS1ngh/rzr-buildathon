@@ -1,5 +1,10 @@
 import db from "../db";
+import { newId } from "../commitment";
+import { ensureDefaultPricebook } from "./pricebook-store";
 import type { CatalogProduct, SellerPolicy } from "./types";
+import { matchCatalogProduct } from "./match-product";
+
+export { matchCatalogProduct };
 
 export const DEFAULT_MERCHANT_ID = "merchant_abc_labels";
 export const DEFAULT_LABEL_PRODUCT_ID = "prod_pickle_label";
@@ -22,6 +27,7 @@ type ProductRow = {
   min_quantity: number;
   max_quantity: number;
   quantity_step: number;
+  active: number;
   metadata_json: string;
 };
 
@@ -189,14 +195,20 @@ export async function ensureDefaultCommerceData(): Promise<void> {
       ON CONFLICT (id) DO NOTHING`
       )
       .run("policy_abc_v1", DEFAULT_MERCHANT_ID, now);
+    await ensureDefaultPricebook(DEFAULT_MERCHANT_ID);
   });
 }
 
 export async function getProduct(
-  productId: string
+  productId: string,
+  includeInactive = false
 ): Promise<CatalogProduct | null> {
   const row = await db
-    .prepare(`SELECT * FROM merchant_products WHERE id = ? AND active = 1`)
+    .prepare(
+      includeInactive
+        ? `SELECT * FROM merchant_products WHERE id = ?`
+        : `SELECT * FROM merchant_products WHERE id = ? AND active = 1`
+    )
     .get<ProductRow>(productId);
   return row ? mapProduct(row) : null;
 }
@@ -226,6 +238,189 @@ export async function listProducts(
     )
     .all<ProductRow>(merchantId);
   return rows.map(mapProduct);
+}
+
+export async function listAllProducts(
+  merchantId: string
+): Promise<CatalogProduct[]> {
+  const rows = await db
+    .prepare(
+      `SELECT * FROM merchant_products
+         WHERE merchant_id = ? ORDER BY category, name`
+    )
+    .all<ProductRow>(merchantId);
+  return rows.map(mapProduct);
+}
+
+export type ProductWriteInput = {
+  merchantId?: string;
+  sku: string;
+  name: string;
+  category: string;
+  description: string;
+  unit: string;
+  costPaise: number;
+  listPricePaise: number;
+  targetPricePaise: number;
+  floorPricePaise: number;
+  minQuantity: number;
+  maxQuantity: number;
+  quantityStep?: number;
+  metadata?: Record<string, unknown>;
+  active?: boolean;
+};
+
+export async function createProduct(
+  input: ProductWriteInput
+): Promise<CatalogProduct> {
+  await ensureDefaultCommerceData();
+  assertPriceLadder(input);
+  const now = Date.now();
+  const merchantId = input.merchantId ?? DEFAULT_MERCHANT_ID;
+  const id = newId("prod");
+  try {
+    await db
+      .prepare(
+        `INSERT INTO merchant_products (
+        id, merchant_id, sku, name, category, description, unit, currency,
+        cost_paise, list_price_paise, target_price_paise, floor_price_paise,
+        min_quantity, max_quantity, quantity_step, active, metadata_json,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'INR', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        merchantId,
+        input.sku.trim(),
+        input.name.trim(),
+        input.category.trim(),
+        input.description.trim(),
+        input.unit.trim(),
+        input.costPaise,
+        input.listPricePaise,
+        input.targetPricePaise,
+        input.floorPricePaise,
+        input.minQuantity,
+        input.maxQuantity,
+        input.quantityStep ?? 1,
+        input.active === false ? 0 : 1,
+        JSON.stringify(input.metadata ?? {}),
+        now,
+        now
+      );
+  } catch (error) {
+    throw uniqueSkuError(error);
+  }
+  const created = await getProduct(id, true);
+  if (!created) throw new Error("Product was not stored");
+  return created;
+}
+
+export async function updateProduct(
+  productId: string,
+  patch: Partial<ProductWriteInput>
+): Promise<CatalogProduct> {
+  const existing = await getProduct(productId, true);
+  if (!existing) throw new Error("Product not found");
+  const next = {
+    sku: patch.sku?.trim() ?? existing.sku,
+    name: patch.name?.trim() ?? existing.name,
+    category: patch.category?.trim() ?? existing.category,
+    description: patch.description?.trim() ?? existing.description,
+    unit: patch.unit?.trim() ?? existing.unit,
+    costPaise: patch.costPaise ?? existing.costPaise,
+    listPricePaise: patch.listPricePaise ?? existing.listPricePaise,
+    targetPricePaise: patch.targetPricePaise ?? existing.targetPricePaise,
+    floorPricePaise: patch.floorPricePaise ?? existing.floorPricePaise,
+    minQuantity: patch.minQuantity ?? existing.minQuantity,
+    maxQuantity: patch.maxQuantity ?? existing.maxQuantity,
+    quantityStep: patch.quantityStep ?? existing.quantityStep,
+    metadata: patch.metadata ?? existing.metadata,
+    active: patch.active ?? existing.active,
+  };
+  assertPriceLadder(next);
+  try {
+    await db
+      .prepare(
+        `UPDATE merchant_products SET
+          sku = ?, name = ?, category = ?, description = ?, unit = ?,
+          cost_paise = ?, list_price_paise = ?, target_price_paise = ?,
+          floor_price_paise = ?, min_quantity = ?, max_quantity = ?,
+          quantity_step = ?, active = ?, metadata_json = ?, updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        next.sku,
+        next.name,
+        next.category,
+        next.description,
+        next.unit,
+        next.costPaise,
+        next.listPricePaise,
+        next.targetPricePaise,
+        next.floorPricePaise,
+        next.minQuantity,
+        next.maxQuantity,
+        next.quantityStep,
+        next.active ? 1 : 0,
+        JSON.stringify(next.metadata),
+        Date.now(),
+        productId
+      );
+  } catch (error) {
+    throw uniqueSkuError(error);
+  }
+  const updated = await getProduct(productId, true);
+  if (!updated) throw new Error("Product not found");
+  return updated;
+}
+
+export async function saveSellerPolicy(input: {
+  merchantId?: string;
+  maxRounds: number;
+  offerTtlSeconds: number;
+  concessionBpsPerRound: number;
+  maxDiscountBps: number;
+  minBundleMarginBps: number;
+  depositBps: number;
+}): Promise<SellerPolicy> {
+  await ensureDefaultCommerceData();
+  const merchantId = input.merchantId ?? DEFAULT_MERCHANT_ID;
+  const current = await getActiveSellerPolicy(merchantId);
+  const version = (current?.version ?? 0) + 1;
+  const id = newId("policy");
+  const now = Date.now();
+  await db.transaction(async () => {
+    await db
+      .prepare(
+        `UPDATE seller_policies SET status = 'superseded'
+         WHERE merchant_id = ? AND status = 'active'`
+      )
+      .run(merchantId);
+    await db
+      .prepare(
+        `INSERT INTO seller_policies (
+        id, merchant_id, version, status, max_rounds, offer_ttl_seconds,
+        concession_bps_per_round, max_discount_bps, min_bundle_margin_bps,
+        deposit_bps, created_at
+      ) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        id,
+        merchantId,
+        version,
+        input.maxRounds,
+        input.offerTtlSeconds,
+        input.concessionBpsPerRound,
+        input.maxDiscountBps,
+        input.minBundleMarginBps,
+        input.depositBps,
+        now
+      );
+  });
+  const saved = await getActiveSellerPolicy(merchantId);
+  if (!saved) throw new Error("Seller policy was not stored");
+  return saved;
 }
 
 export async function getActiveSellerPolicy(
@@ -271,6 +466,42 @@ export function toPublicProduct(product: CatalogProduct) {
   };
 }
 
+export function toMerchantProduct(product: CatalogProduct) {
+  return {
+    ...product,
+  };
+}
+
+function assertPriceLadder(input: {
+  costPaise: number;
+  listPricePaise: number;
+  targetPricePaise: number;
+  floorPricePaise: number;
+  minQuantity: number;
+  maxQuantity: number;
+}) {
+  if (
+    !(
+      input.listPricePaise >= input.targetPricePaise &&
+      input.targetPricePaise >= input.floorPricePaise &&
+      input.floorPricePaise >= input.costPaise
+    )
+  ) {
+    throw new Error("Prices must satisfy list ≥ target ≥ floor ≥ cost");
+  }
+  if (input.minQuantity < 1 || input.maxQuantity < input.minQuantity) {
+    throw new Error("Quantities must satisfy 1 ≤ min ≤ max");
+  }
+}
+
+function uniqueSkuError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/unique|duplicate/i.test(message)) {
+    return new Error("A product with this SKU already exists for the merchant");
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
 function mapProduct(row: ProductRow): CatalogProduct {
   return {
     id: row.id,
@@ -288,6 +519,7 @@ function mapProduct(row: ProductRow): CatalogProduct {
     minQuantity: row.min_quantity,
     maxQuantity: row.max_quantity,
     quantityStep: row.quantity_step,
+    active: row.active !== 0,
     metadata: JSON.parse(row.metadata_json) as Record<string, unknown>,
   };
 }

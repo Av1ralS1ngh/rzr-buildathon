@@ -350,6 +350,50 @@ a:hover {
   background: var(--sunken);
 }
 
+.sl-input,
+.sl-select,
+.sl-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 9px 11px;
+  outline: none;
+}
+.sl-input:focus,
+.sl-select:focus,
+.sl-textarea:focus {
+  border-color: var(--press);
+}
+.sl-label {
+  display: block;
+  font-family: var(--font-code);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+.sl-field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.sl-sku-grid {
+  display: grid;
+  grid-template-columns: 118px 1.4fr 88px 88px 88px 88px 72px;
+  gap: 10px;
+  align-items: center;
+}
+.sl-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .sl-quote-grid {
   display: grid;
   grid-template-columns: 1fr 300px;
@@ -387,6 +431,10 @@ a:hover {
   }
   .sl-offer-grid {
     grid-template-columns: 72px 1fr !important;
+  }
+  .sl-field-grid,
+  .sl-sku-grid {
+    grid-template-columns: 1fr 1fr !important;
   }
   .sl-dock-inner {
     flex-direction: column;

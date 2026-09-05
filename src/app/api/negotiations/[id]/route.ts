@@ -5,12 +5,15 @@ import { apiError } from "@/lib/api-response";
 export const runtime = "nodejs";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await ctx.params;
-    return NextResponse.json(await getNegotiation(id));
+    const roleParam = req.nextUrl.searchParams.get("role");
+    const role =
+      roleParam === "seller" || roleParam === "buyer" ? roleParam : undefined;
+    return NextResponse.json(await getNegotiation(id, role ? { role } : undefined));
   } catch (error) {
     return apiError(error);
   }

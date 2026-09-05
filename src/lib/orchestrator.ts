@@ -4,7 +4,7 @@ import { hashSpec, newId } from "./commitment";
 import { runLabelRulesCheck } from "./capabilities/label-rules";
 import { runPrintCheck, type PrintCheckInput } from "./capabilities/print-check";
 import { runCapacityCheck } from "./capabilities/capacity";
-import { calculateQuote, getPricebookVersion } from "./pricebook";
+import { priceSpecification } from "./quote";
 import { policyCheckQuote } from "./policy";
 import { logAudit } from "./audit";
 
@@ -148,8 +148,12 @@ export async function orchestrateRfq(
   }
 
   try {
-    const quote = calculateQuote(spec);
-    const policy = policyCheckQuote(spec, quote.totalPaise);
+    const rfq = await db
+      .prepare(`SELECT product_id FROM rfqs WHERE id = ?`)
+      .get<{ product_id: string | null }>(rfqId);
+    const priced = await priceSpecification(spec, rfq?.product_id);
+    const quote = priced.quote;
+    const policy = policyCheckQuote(spec, quote.totalPaise, priced.rates.minMoq);
     if (!policy.allowed) {
       await db
         .prepare(`UPDATE rfqs SET status = ? WHERE id = ?`)
@@ -186,7 +190,7 @@ export async function orchestrateRfq(
           quote.depositPaise,
           specHash,
           artworkMeta?.hash ?? null,
-          getPricebookVersion(),
+          priced.rates.version,
           expiresAt,
           Date.now(),
           policy.requiresApproval ? 1 : 0
@@ -198,6 +202,8 @@ export async function orchestrateRfq(
 
     await logAudit(rfqId, "pricebook", "quote_generated", {
       quoteId,
+      productId: priced.productId ?? null,
+      pricebookVersion: priced.rates.version,
       totalPaise: quote.totalPaise,
       depositPaise: quote.depositPaise,
       requiresApproval: policy.requiresApproval,

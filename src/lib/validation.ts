@@ -33,6 +33,7 @@ export const labelSpecPatchSchema = labelSpecSchema.partial().strict();
 export const createRfqSchema = z
   .object({
     rawText: z.string().trim().min(10, "Describe the order in at least 10 characters").max(5_000),
+    productId: z.string().trim().min(1).max(100).optional(),
   })
   .strict();
 

@@ -2,15 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { AgentMeshTab } from "./AgentMeshTab";
+import { CatalogTab } from "./CatalogTab";
 import { FlowTab } from "./FlowTab";
 import { IntroOverlay, RegMark } from "./IntroOverlay";
 import { MerchantTab } from "./MerchantTab";
 import { NegotiationTab } from "./NegotiationTab";
 
-export type DeskTab = "flow" | "merchant" | "negotiate" | "mesh";
+export type DeskTab = "flow" | "catalog" | "merchant" | "negotiate" | "mesh";
 
 const TABS: { key: DeskTab; label: string }[] = [
   { key: "flow", label: "Flow" },
+  { key: "catalog", label: "Catalog" },
   { key: "merchant", label: "Merchant" },
   { key: "negotiate", label: "Negotiation" },
   { key: "mesh", label: "Agent mesh" },
@@ -123,6 +125,7 @@ export function DealDesk({
                   setTab(t.key);
                   scrollEl?.scrollTo({ top: 0 });
                   if (t.key === "merchant") history.replaceState(null, "", "/merchant");
+                  else if (t.key === "catalog") history.replaceState(null, "", "/catalog");
                   else if (t.key === "flow" && rfqId) history.replaceState(null, "", `/rfq/${rfqId}`);
                   else history.replaceState(null, "", "/");
                 }}
@@ -172,6 +175,7 @@ export function DealDesk({
 
       <div ref={setScrollEl} style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
         {tab === "flow" && <FlowTab initialRfqId={rfqId} scrollEl={scrollEl} />}
+        {tab === "catalog" && <CatalogTab />}
         {tab === "merchant" && <MerchantTab onOpenRfq={openRfq} />}
         {tab === "negotiate" && <NegotiationTab />}
         {tab === "mesh" && <AgentMeshTab />}

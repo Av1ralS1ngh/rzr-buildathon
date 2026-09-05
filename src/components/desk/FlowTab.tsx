@@ -6,6 +6,7 @@ import { parseRfqText } from "@/lib/rfq-parser";
 import { readApiJson } from "@/lib/http";
 import { formatClock, formatInr, shortenHash } from "@/lib/inr";
 import type { LabelSpec } from "@/lib/types";
+import { matchCatalogProduct } from "@/lib/commerce/match-product";
 import { CAPABILITY_FEES, stepFromStatus, type RfqDetail } from "./rfq-types";
 
 const SAMPLE =
@@ -73,9 +74,12 @@ function artworkCaption(artwork: {
   return parts.join(" · ");
 }
 
-function productTitle(spec: Record<string, unknown> | null) {
+function productTitle(
+  spec: Record<string, unknown> | null,
+  product?: { name: string } | null
+) {
+  if (product?.name) return product.name;
   const type = String(spec?.productType ?? "label");
-  if (type.includes("pickle")) return "Mango pickle jar label";
   return type.replaceAll("_", " ");
 }
 
@@ -105,8 +109,16 @@ export function FlowTab({
   const [revisionOpen, setRevisionOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [artworkFile, setArtworkFile] = useState<File | null>(null);
+  const [catalog, setCatalog] = useState<
+    Array<{ id: string; sku: string; name: string; category: string; listPricePaise: number; unit: string }>
+  >([]);
+  const [productId, setProductId] = useState("");
 
   const parsed = useMemo(() => parseRfqText(rawText), [rawText]);
+  const matchedSku = useMemo(
+    () => matchCatalogProduct(rawText, catalog),
+    [rawText, catalog]
+  );
 
   const after = useCallback((fn: () => void, ms: number) => {
     const id = window.setTimeout(fn, rm.current ? 1 : ms);
@@ -134,6 +146,27 @@ export function FlowTab({
     return () => {
       for (const id of scheduled) window.clearTimeout(id);
     };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetch("/api/catalog", { cache: "no-store" })
+        .then((res) => res.json())
+        .then((body: {
+          products?: Array<{
+            id: string;
+            sku: string;
+            name: string;
+            category: string;
+            listPricePaise: number;
+            unit: string;
+          }>;
+        }) => {
+          setCatalog(body.products ?? []);
+        })
+        .catch(() => undefined);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -185,6 +218,7 @@ export function FlowTab({
           if (cancelled) return;
           setRfqId(body.rfq.id);
           setRawText(body.rfq.rawText);
+          setProductId(body.rfq.productId ?? "");
           const nextStep = stepFromStatus(body.rfq.status, true);
           setStep(nextStep);
           if (body.quote) setTotalDisplay(formatInr(body.quote.totalPaise, false));
@@ -263,7 +297,7 @@ export function FlowTab({
       const res = await fetch("/api/rfq", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rawText }),
+        body: JSON.stringify({ rawText, productId: productId || undefined }),
       });
       const body = await readApiJson<{ id: string; error?: string }>(res);
       if (!res.ok) throw new Error(body.error ?? "Failed to raise job");
@@ -646,6 +680,33 @@ export function FlowTab({
                 {rawText.length} CHARS · UNSTRUCTURED
               </span>
             </div>
+            <div style={{ padding: "12px 20px 0" }}>
+              <label>
+                <span className="sl-label">Price against</span>
+                <select
+                  className="sl-select"
+                  value={productId}
+                  onChange={(event) => setProductId(event.target.value)}
+                >
+                  <option value="">Custom job · live pricebook formula</option>
+                  {catalog.map((product) => (
+                    <option key={product.id} value={product.id}>
+                      {product.sku} · {product.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {matchedSku && !productId && (
+                <button
+                  type="button"
+                  className="sl-btn sl-btn-chip"
+                  style={{ marginTop: 8 }}
+                  onClick={() => setProductId(matchedSku.id)}
+                >
+                  USE MATCHED {matchedSku.sku}
+                </button>
+              )}
+            </div>
             <textarea
               value={rawText}
               spellCheck={false}
@@ -758,7 +819,7 @@ export function FlowTab({
                   SPEC PLATE · {String(spec.productType ?? "LABEL").toUpperCase()}
                 </div>
                 <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.028em", marginTop: 6 }}>
-                  {productTitle(spec)}
+                  {productTitle(spec, data?.rfq.product)}
                 </div>
                 <div style={{ fontFamily: "var(--font-code)", fontSize: 10.5, color: "var(--plate-ink)", marginTop: 6 }}>
                   {(data?.rfq.clarification?.engine ?? "rules").toUpperCase()} PARSER · PRICEBOOK ONLY

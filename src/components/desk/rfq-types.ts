@@ -7,6 +7,8 @@ export type RfqDetail = {
     status: string;
     rawText: string;
     spec: Record<string, unknown> | null;
+    productId?: string | null;
+    product?: { id: string; sku: string; name: string; unit: string } | null;
     clarification: {
       questions?: string[];
       missingFields?: string[];

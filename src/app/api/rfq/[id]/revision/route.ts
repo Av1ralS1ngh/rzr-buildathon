@@ -3,7 +3,7 @@ import db from "@/lib/db";
 import { toLabelSpec, mergeSpec } from "@/lib/rfq-parser";
 import type { LabelSpec } from "@/lib/types";
 import type { CommitmentRow, QuoteRow, RfqRow } from "@/lib/db-types";
-import { calculateQuote, getPricebookVersion } from "@/lib/pricebook";
+import { priceSpecification } from "@/lib/quote";
 import { policyCheckQuote, policyCheckRevision } from "@/lib/policy";
 import { hashSpec, newId } from "@/lib/commitment";
 import { logAudit } from "@/lib/audit";
@@ -119,8 +119,13 @@ export async function POST(
   }
 
   let newQuote;
+  let pricebookVersion: string;
+  let quotePolicy: ReturnType<typeof policyCheckQuote>;
   try {
-    newQuote = calculateQuote(newSpec);
+    const priced = await priceSpecification(newSpec, rfq.product_id);
+    newQuote = priced.quote;
+    pricebookVersion = priced.rates.version;
+    quotePolicy = policyCheckQuote(newSpec, newQuote.totalPaise, priced.rates.minMoq);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Revision cannot be quoted" },
@@ -129,7 +134,6 @@ export async function POST(
   }
   const deltaPaise = newQuote.totalPaise - oldQuote.total_paise;
   const revisionPolicy = policyCheckRevision(deltaPaise);
-  const quotePolicy = policyCheckQuote(newSpec, newQuote.totalPaise);
   const paidDeposits = (
     (await db
       .prepare(
@@ -164,7 +168,7 @@ export async function POST(
         additionalDepositPaise,
         newHash,
         rfq.artwork_hash,
-        getPricebookVersion(),
+        pricebookVersion,
         now + 48 * 60 * 60 * 1000,
         now,
         requiresApproval ? 1 : 0

@@ -17,6 +17,11 @@ request or explain offers, but cannot authorize them.
 10. Payment amount, mandate hashes, accepted offer, and Razorpay order are bound
     by one commitment hash.
 
+Buyer and seller agent rooms are separate environments over the same session.
+`POST /api/negotiations/:id/counter` with `awaitSeller: true` records the buyer
+offer and waits. `POST /api/negotiations/:id/respond` is the seller turn.
+Default combined counters remain available for automated tests.
+
 ## Pricing authority
 
 Each catalog product snapshots four values into every offer:

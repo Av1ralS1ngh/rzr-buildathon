@@ -24,6 +24,7 @@ export type RfqRow = {
   artwork_size: number | null;
   artwork_preflight_json: string | null;
   clarification_json: string | null;
+  product_id: string | null;
   created_at: number;
   updated_at: number;
 };

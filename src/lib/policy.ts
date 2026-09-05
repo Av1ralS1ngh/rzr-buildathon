@@ -3,7 +3,11 @@ import type { LabelSpec } from "./types";
 const MAX_AUTONOMOUS_REVISION_PAISE = 200000; // ₹2,000
 const MERCHANT_APPROVAL_THRESHOLD_PAISE = 5_000_000; // ₹50,000
 
-export function policyCheckQuote(spec: LabelSpec, totalPaise: number): {
+export function policyCheckQuote(
+  spec: LabelSpec,
+  totalPaise: number,
+  minMoq = 1000
+): {
   allowed: boolean;
   requiresApproval: boolean;
   reasons: string[];
@@ -12,7 +16,7 @@ export function policyCheckQuote(spec: LabelSpec, totalPaise: number): {
   if (totalPaise > spec.budgetPaise) {
     reasons.push("Exceeds buyer budget cap");
   }
-  if (spec.quantity < 1000) {
+  if (spec.quantity < minMoq) {
     reasons.push("Below MOQ policy");
   }
   const requiresApproval = totalPaise > MERCHANT_APPROVAL_THRESHOLD_PAISE;

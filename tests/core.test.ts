@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseRfqText, toLabelSpec } from "@/lib/rfq-parser";
-import { calculateQuote, checkCapacity } from "@/lib/pricebook";
+import { calculateQuote, checkCapacity, DEFAULT_PRICEBOOK_RATES } from "@/lib/pricebook";
 import { canTransition, checkoutAllowed } from "@/lib/state-machine";
 import { buildPaymentRequired } from "@/lib/x402";
 import { parsePaymentRequired } from "@x402/core/schemas";
@@ -59,6 +59,18 @@ describe("deterministic business logic", () => {
         totalPaise: quote.totalPaise,
       })
     ).toHaveLength(64);
+  });
+
+  it("reprices when the merchant rate card changes", () => {
+    const quote = calculateQuote(spec);
+    const cheaper = calculateQuote(spec, {
+      ...DEFAULT_PRICEBOOK_RATES,
+      version: "v3",
+      setupPaise: 100_000,
+      marginBps: 1_000,
+    });
+    expect(cheaper.totalPaise).toBeLessThan(quote.totalPaise);
+    expect(cheaper.totalPaise).toBeGreaterThan(0);
   });
 
   it("accounts for business days in capacity", () => {

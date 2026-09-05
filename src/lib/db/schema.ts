@@ -11,6 +11,7 @@ export const SCHEMA_SQL = `
     artwork_size INTEGER,
     artwork_preflight_json TEXT,
     clarification_json TEXT,
+    product_id TEXT,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
   );
@@ -134,6 +135,24 @@ export const SCHEMA_SQL = `
     UNIQUE (merchant_id, version)
   );
 
+  CREATE TABLE IF NOT EXISTS merchant_pricebooks (
+    merchant_id TEXT PRIMARY KEY REFERENCES merchants(id) ON DELETE CASCADE,
+    version TEXT NOT NULL,
+    setup_paise BIGINT NOT NULL CHECK (setup_paise >= 0),
+    material_base_paise INTEGER NOT NULL CHECK (material_base_paise >= 0),
+    print_unit_paise INTEGER NOT NULL CHECK (print_unit_paise >= 0),
+    pet_white_add_paise INTEGER NOT NULL CHECK (pet_white_add_paise >= 0),
+    pp_clear_add_paise INTEGER NOT NULL CHECK (pp_clear_add_paise >= 0),
+    matte_lamination_add_paise INTEGER NOT NULL CHECK (matte_lamination_add_paise >= 0),
+    oil_cold_add_paise INTEGER NOT NULL CHECK (oil_cold_add_paise >= 0),
+    wastage_bps INTEGER NOT NULL CHECK (wastage_bps BETWEEN 0 AND 9000),
+    verification_paise BIGINT NOT NULL CHECK (verification_paise >= 0),
+    margin_bps INTEGER NOT NULL CHECK (margin_bps BETWEEN 0 AND 9000),
+    deposit_bps INTEGER NOT NULL CHECK (deposit_bps BETWEEN 0 AND 10000),
+    min_moq INTEGER NOT NULL CHECK (min_moq > 0),
+    updated_at BIGINT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS negotiation_sessions (
     id TEXT PRIMARY KEY,
     merchant_id TEXT NOT NULL REFERENCES merchants(id) ON DELETE CASCADE,
@@ -216,6 +235,16 @@ export const SCHEMA_SQL = `
     session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL,
+    created_at BIGINT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS negotiation_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES negotiation_sessions(id) ON DELETE CASCADE,
+    actor TEXT NOT NULL CHECK (actor IN ('buyer', 'seller', 'system')),
+    kind TEXT NOT NULL CHECK (kind IN ('chat', 'offer', 'system')),
+    body TEXT NOT NULL,
+    offer_id TEXT REFERENCES negotiation_offers(id),
     created_at BIGINT NOT NULL
   );
 
@@ -330,6 +359,10 @@ export const SCHEMA_SQL = `
     ON negotiation_offers(session_id, sequence);
   CREATE INDEX IF NOT EXISTS idx_negotiation_events_session
     ON negotiation_events(session_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_negotiation_messages_session
+    ON negotiation_messages(session_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_rfqs_product
+    ON rfqs(product_id);
   CREATE INDEX IF NOT EXISTS idx_relationships_source
     ON product_relationships(source_product_id, relationship_type, relevance_score DESC);
   CREATE INDEX IF NOT EXISTS idx_bundle_options_session

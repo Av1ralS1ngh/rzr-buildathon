@@ -288,7 +288,28 @@ export async function counterNegotiation(
       expiresAt: now + policy.offerTtlSeconds * 1000,
       now,
     });
+    if (input.note) {
+      await insertMessage(sessionId, "buyer", "chat", input.note, buyerOfferId);
+    }
 
+    if (input.awaitSeller) {
+      await db
+        .prepare(
+          `UPDATE negotiation_sessions
+         SET current_round = ?, updated_at = ?
+         WHERE id = ? AND status = 'open'`
+        )
+        .run(nextRound, now, sessionId);
+      await insertEvent(sessionId, "offer.buyer_submitted", {
+        buyerOfferId,
+        round: nextRound,
+      });
+      result = {
+        outcome: "buyer_submitted",
+        offer: await getOffer(buyerOfferId),
+        reason: "Buyer offer is waiting for the seller agent.",
+      };
+    } else {
     const decision = sellerDecision({
       buyerLines,
       previousSellerLines,
@@ -373,6 +394,7 @@ export async function counterNegotiation(
         reason: decision.reason,
       };
     }
+    }
 
     if (input.idempotencyKey && result) {
       await insertIdempotency(
@@ -386,6 +408,185 @@ export async function counterNegotiation(
   });
   if (!result) throw new Error("Negotiation decision was not produced");
   return result;
+}
+
+export async function respondAsSeller(
+  sessionId: string,
+  input: { note?: string; idempotencyKey?: string } = {}
+): Promise<NegotiationDecision> {
+  const requestHash = fingerprint(input);
+  if (input.idempotencyKey) {
+    const existing = await getIdempotentResponse(
+      `negotiation.respond:${sessionId}`,
+      input.idempotencyKey,
+      requestHash
+    );
+    if (existing) return existing as NegotiationDecision;
+  }
+
+  let result: NegotiationDecision | undefined;
+  await db.transaction(async () => {
+    const session = await getOpenSession(sessionId);
+    const policy = await getPolicyById(session.seller_policy_id);
+    const requirements = await getRequirementBounds(sessionId);
+    const buyerOffer = await db
+      .prepare(
+        `SELECT * FROM negotiation_offers
+         WHERE session_id = ? AND actor = 'buyer' AND status = 'active'
+         ORDER BY sequence DESC LIMIT 1`
+      )
+      .get<OfferRow>(sessionId);
+    if (!buyerOffer) {
+      throw new Error("No buyer offer is waiting for a seller response");
+    }
+    if (!buyerOffer.parent_offer_id) {
+      throw new Error("Buyer offer is missing its parent seller offer");
+    }
+    const parent = await getOfferRow(buyerOffer.parent_offer_id);
+    if (!parent) throw new Error("Previous seller offer was not found");
+    const buyerLines = await getPricedLines(buyerOffer.id, session.merchant_id);
+    const previousSellerLines = await getPricedLines(parent.id, session.merchant_id);
+    const giveBacks = (
+      JSON.parse(buyerOffer.terms_json) as { giveBacks?: CounterOfferInput["giveBacks"] }
+    ).giveBacks ?? [];
+    const now = Date.now();
+    const round = buyerOffer.round;
+    const decision = sellerDecision({
+      buyerLines,
+      previousSellerLines,
+      requirements,
+      policy,
+      round,
+      giveBacks,
+    });
+    if (input.note) {
+      await insertMessage(sessionId, "seller", "chat", input.note, buyerOffer.id);
+    }
+
+    if (decision.action === "accept") {
+      await db
+        .prepare(`UPDATE negotiation_offers SET status = 'accepted' WHERE id = ?`)
+        .run(buyerOffer.id);
+      await db
+        .prepare(
+          `UPDATE negotiation_sessions
+         SET status = 'agreed', current_round = ?, accepted_offer_id = ?, updated_at = ?
+         WHERE id = ? AND status = 'open'`
+        )
+        .run(round, buyerOffer.id, now, sessionId);
+      await insertEvent(sessionId, "negotiation.agreed", {
+        acceptedOfferId: buyerOffer.id,
+        round,
+      });
+      await createClosedMandates(sessionId, buyerOffer.id);
+      result = {
+        outcome: "accepted",
+        acceptedOfferId: buyerOffer.id,
+        reason: decision.reason,
+      };
+    } else if (decision.action === "reject") {
+      await db
+        .prepare(`UPDATE negotiation_offers SET status = 'rejected' WHERE id = ?`)
+        .run(buyerOffer.id);
+      await db
+        .prepare(
+          `UPDATE negotiation_sessions
+         SET status = 'rejected', current_round = ?, updated_at = ?
+         WHERE id = ? AND status = 'open'`
+        )
+        .run(round, now, sessionId);
+      await insertEvent(sessionId, "negotiation.rejected", { round });
+      result = { outcome: "rejected", reason: decision.reason };
+    } else {
+      await db
+        .prepare(`UPDATE negotiation_offers SET status = 'countered' WHERE id = ?`)
+        .run(buyerOffer.id);
+      const sellerOfferId = newId("offer");
+      await insertOffer({
+        id: sellerOfferId,
+        sessionId,
+        sequence: buyerOffer.sequence + 1,
+        round,
+        actor: "seller",
+        parentOfferId: buyerOffer.id,
+        lines: decision.lines,
+        deliveryDate: buyerOffer.delivery_date ?? undefined,
+        depositBps: buyerOffer.deposit_bps,
+        explanation: decision.reason,
+        terms: {
+          concessionRound: round,
+          reciprocalGiveBacks: giveBacks,
+        },
+        expiresAt: now + policy.offerTtlSeconds * 1000,
+        now,
+      });
+      await db
+        .prepare(
+          `UPDATE negotiation_sessions SET updated_at = ? WHERE id = ? AND status = 'open'`
+        )
+        .run(now, sessionId);
+      await insertEvent(sessionId, "offer.countered", {
+        buyerOfferId: buyerOffer.id,
+        sellerOfferId,
+        round,
+      });
+      result = {
+        outcome: "countered",
+        offer: await getOffer(sellerOfferId),
+        reason: decision.reason,
+      };
+    }
+
+    if (input.idempotencyKey && result) {
+      await insertIdempotency(
+        `negotiation.respond:${sessionId}`,
+        input.idempotencyKey,
+        result.outcome === "countered" ? result.offer.id : sessionId,
+        result,
+        requestHash
+      );
+    }
+  });
+  if (!result) throw new Error("Seller response was not produced");
+  return result;
+}
+
+export async function postNegotiationMessage(
+  sessionId: string,
+  actor: "buyer" | "seller",
+  body: string
+) {
+  const session = await db
+    .prepare(`SELECT id FROM negotiation_sessions WHERE id = ?`)
+    .get(sessionId);
+  if (!session) throw new Error("Negotiation not found");
+  return insertMessage(sessionId, actor, "chat", body);
+}
+
+export async function listNegotiationMessages(sessionId: string) {
+  const rows = await db
+    .prepare(
+      `SELECT id, session_id, actor, kind, body, offer_id, created_at
+       FROM negotiation_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`
+    )
+    .all<{
+      id: string;
+      session_id: string;
+      actor: "buyer" | "seller" | "system";
+      kind: "chat" | "offer" | "system";
+      body: string;
+      offer_id: string | null;
+      created_at: number;
+    }>(sessionId);
+  return rows.map((row) => ({
+    id: row.id,
+    sessionId: row.session_id,
+    actor: row.actor,
+    kind: row.kind,
+    body: row.body,
+    offerId: row.offer_id ?? undefined,
+    createdAt: row.created_at,
+  }));
 }
 
 export async function acceptSellerOffer(
@@ -592,7 +793,10 @@ export async function replaceWithSellerBundle(input: {
   return getOffer(offerId);
 }
 
-export async function getNegotiation(sessionId: string) {
+export async function getNegotiation(
+  sessionId: string,
+  options?: { role?: "buyer" | "seller" }
+) {
   const session = await db
     .prepare(`SELECT * FROM negotiation_sessions WHERE id = ?`)
     .get<SessionRow>(sessionId);
@@ -604,7 +808,10 @@ export async function getNegotiation(sessionId: string) {
          WHERE session_id = ? ORDER BY sequence ASC`
     )
     .all<OfferRow>(sessionId);
-  const offers = await Promise.all(offerRows.map(mapOffer));
+  const includeAuthority = options?.role === "seller";
+  const offers = await Promise.all(
+    offerRows.map((row) => mapOffer(row, includeAuthority))
+  );
   const eventRows = await db
     .prepare(
       `SELECT id, event_type, payload_json, created_at
@@ -622,7 +829,18 @@ export async function getNegotiation(sessionId: string) {
     payload: JSON.parse(event.payload_json) as Record<string, unknown>,
     createdAt: event.created_at,
   }));
-  return {
+  const messages = await listNegotiationMessages(sessionId);
+  const lastActive = [...offers].reverse().find((offer) => offer.status === "active");
+  const waitingFor =
+    session.status !== "open"
+      ? null
+      : lastActive?.actor === "seller"
+        ? "buyer"
+        : lastActive?.actor === "buyer"
+          ? "seller"
+          : "buyer";
+  const policy = await getPolicyById(session.seller_policy_id);
+  const base = {
     id: session.id,
     merchantId: session.merchant_id,
     buyerAgentId: session.buyer_agent_id,
@@ -634,10 +852,56 @@ export async function getNegotiation(sessionId: string) {
     expiresAt: session.expires_at,
     createdAt: session.created_at,
     updatedAt: session.updated_at,
+    waitingFor,
+    policy: {
+      id: policy.id,
+      version: policy.version,
+      maxRounds: policy.maxRounds,
+      concessionBpsPerRound: policy.concessionBpsPerRound,
+      maxDiscountBps: policy.maxDiscountBps,
+      minBundleMarginBps: policy.minBundleMarginBps,
+      depositBps: policy.depositBps,
+      offerTtlSeconds: policy.offerTtlSeconds,
+    },
     requirements,
     offers,
     events,
+    messages,
   };
+  if (options?.role === "buyer") {
+    const terms = await getPrivateTerms(sessionId);
+    return {
+      ...base,
+      mandate: {
+        maxTotalPaise: terms.buyer_max_total_paise,
+        maxDepositPaise: terms.buyer_max_deposit_paise,
+      },
+    };
+  }
+  if (includeAuthority) {
+    const products = await getProducts(
+      [...new Set(requirements.map((item) => item.productId))],
+      session.merchant_id
+    );
+    return {
+      ...base,
+      authority: {
+        products: products.map((product) => ({
+          id: product.id,
+          sku: product.sku,
+          name: product.name,
+          unit: product.unit,
+          costPaise: product.costPaise,
+          listPricePaise: product.listPricePaise,
+          targetPricePaise: product.targetPricePaise,
+          floorPricePaise: product.floorPricePaise,
+          minQuantity: product.minQuantity,
+          maxQuantity: product.maxQuantity,
+        })),
+      },
+    };
+  }
+  return base;
 }
 
 export async function getOffer(offerId: string): Promise<NegotiationOffer> {
@@ -680,7 +944,10 @@ export async function cancelNegotiation(sessionId: string) {
   return await getNegotiation(sessionId);
 }
 
-async function mapOffer(row: OfferRow): Promise<NegotiationOffer> {
+async function mapOffer(
+  row: OfferRow,
+  includeAuthority = false
+): Promise<NegotiationOffer> {
   const items = (
     await db
       .prepare(
@@ -700,6 +967,14 @@ async function mapOffer(row: OfferRow): Promise<NegotiationOffer> {
     unitPricePaise: item.unit_price_paise,
     lineTotalPaise: item.quantity * item.unit_price_paise,
     source: item.source,
+    ...(includeAuthority
+      ? {
+          costPaise: item.cost_snapshot_paise,
+          listPaise: item.list_snapshot_paise,
+          targetPaise: item.target_snapshot_paise,
+          floorPaise: item.floor_snapshot_paise,
+        }
+      : {}),
   }));
   return {
     id: row.id,
@@ -790,7 +1065,7 @@ async function getPricedLines(offerId: string, merchantId: string): Promise<Pric
     .prepare(
       `SELECT i.product_id, p.sku, p.name, p.merchant_id, p.category,
               p.description, p.unit, p.currency, p.min_quantity, p.max_quantity,
-              p.quantity_step, p.metadata_json, i.quantity, i.unit_price_paise,
+              p.quantity_step, p.metadata_json, p.active, i.quantity, i.unit_price_paise,
               i.cost_snapshot_paise, i.list_snapshot_paise,
               i.target_snapshot_paise, i.floor_snapshot_paise, i.source
        FROM negotiation_offer_items i
@@ -815,6 +1090,7 @@ async function getPricedLines(offerId: string, merchantId: string): Promise<Pric
       minQuantity: row.min_quantity as number,
       maxQuantity: row.max_quantity as number,
       quantityStep: row.quantity_step as number,
+      active: (row.active as number) !== 0,
       metadata: JSON.parse(row.metadata_json as string) as Record<string, unknown>,
     },
     quantity: row.quantity as number,
@@ -907,6 +1183,33 @@ async function getPrivateTerms(sessionId: string) {
     }>(sessionId);
   if (!row) throw new Error("Buyer mandate terms not found");
   return row;
+}
+
+async function insertMessage(
+  sessionId: string,
+  actor: "buyer" | "seller" | "system",
+  kind: "chat" | "offer" | "system",
+  body: string,
+  offerId?: string
+) {
+  const id = newId("msg");
+  const createdAt = Date.now();
+  await db
+    .prepare(
+      `INSERT INTO negotiation_messages (
+        id, session_id, actor, kind, body, offer_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(id, sessionId, actor, kind, body, offerId ?? null, createdAt);
+  return {
+    id,
+    sessionId,
+    actor,
+    kind,
+    body,
+    offerId,
+    createdAt,
+  };
 }
 
 async function insertEvent(

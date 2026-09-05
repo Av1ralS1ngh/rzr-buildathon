@@ -3,6 +3,7 @@ import { parseRfq } from "@/lib/rfq-parser";
 import { logAudit } from "@/lib/audit";
 import { newId } from "@/lib/commitment";
 import type { LabelSpec } from "@/lib/types";
+import { ensureDefaultCommerceData, getProduct } from "@/lib/commerce/catalog";
 
 export type CreatedRfq = {
   id: string;
@@ -12,11 +13,13 @@ export type CreatedRfq = {
   clarificationQuestions: string[];
   engine: "rules" | "llm+zod";
   llmModel?: string;
+  productId?: string | null;
 };
 
 export async function createRfqFromText(
   rawText: string,
-  source: "web" | "telegram" = "web"
+  source: "web" | "telegram" = "web",
+  productId?: string
 ): Promise<CreatedRfq> {
   const parsed = await parseRfq(rawText);
   const id = newId("rfq");
@@ -25,11 +28,21 @@ export async function createRfqFromText(
       ? "needs_clarification"
       : "draft";
 
+  let boundProductId: string | null = null;
+  if (productId) {
+    await ensureDefaultCommerceData();
+    const product = await getProduct(productId);
+    if (!product) {
+      throw new Error("Selected catalog product is unavailable");
+    }
+    boundProductId = product.id;
+  }
+
   await db
     .prepare(
       `INSERT INTO rfqs (
-      id, status, raw_text, spec_json, artwork_hash, clarification_json, created_at, updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      id, status, raw_text, spec_json, artwork_hash, clarification_json, product_id, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
@@ -44,6 +57,7 @@ export async function createRfqFromText(
         llmModel: parsed.llmModel ?? null,
         source,
       }),
+      boundProductId,
       Date.now(),
       Date.now()
     );
@@ -54,6 +68,7 @@ export async function createRfqFromText(
     engine: parsed.engine,
     llmModel: parsed.llmModel,
     source,
+    productId: boundProductId,
   });
 
   return {
@@ -64,5 +79,6 @@ export async function createRfqFromText(
     clarificationQuestions: parsed.clarificationQuestions,
     engine: parsed.engine,
     llmModel: parsed.llmModel,
+    productId: boundProductId,
   };
 }

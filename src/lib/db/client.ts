@@ -49,6 +49,7 @@ const SQLITE_MIGRATIONS = [
   `ALTER TABLE negotiation_private_terms ADD COLUMN allowed_cross_sell_json TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT`,
   `ALTER TABLE rfqs ADD COLUMN artwork_preflight_json TEXT`,
+  `ALTER TABLE rfqs ADD COLUMN product_id TEXT`,
 ];
 
 types.setTypeParser(20, (value) => Number(value));
@@ -121,6 +122,7 @@ function coerceRow<T>(row: T): T {
           "attach_quantity",
           "max_rounds",
           "substitutions_allowed",
+          "min_moq",
         ].includes(key)
       ) {
         next[key] = Number(value);
@@ -185,6 +187,9 @@ class DatabaseClient {
       }
       await pool.query(
         `ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS artwork_preflight_json TEXT`
+      );
+      await pool.query(
+        `ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS product_id TEXT`
       );
       return;
     }

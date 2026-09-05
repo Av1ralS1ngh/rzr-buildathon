@@ -4,6 +4,8 @@ import {
   acceptSellerOffer,
   counterNegotiation,
   createNegotiation,
+  getNegotiation,
+  respondAsSeller,
   runAutonomousNegotiation,
 } from "@/lib/commerce/negotiation-service";
 import {
@@ -26,6 +28,7 @@ import { NextRequest } from "next/server";
 
 beforeEach(async () => {
   await db.exec(`
+    DELETE FROM negotiation_messages;
     DELETE FROM idempotency_keys;
     DELETE FROM commerce_orders;
     DELETE FROM mandate_artifacts;
@@ -40,6 +43,7 @@ beforeEach(async () => {
     DELETE FROM product_relationships;
     DELETE FROM seller_policies;
     DELETE FROM merchant_products;
+    DELETE FROM merchant_pricebooks;
     DELETE FROM merchants;
   `);
   await ensureDefaultCommerceData();
@@ -83,6 +87,33 @@ describe("deterministic negotiation engine", () => {
     expect(decision.offer.totalPaise).toBeGreaterThanOrEqual(3_500_000);
     expect(JSON.stringify(decision)).not.toContain("floor");
     expect(JSON.stringify(decision)).not.toContain("cost");
+  });
+
+  it("lets buyer and seller act in separate turns", async () => {
+    const session = await createExampleNegotiation();
+    const submitted = await counterNegotiation(session.id, {
+      parentOfferId: session.offers[0].id,
+      targetTotalPaise: 4_500_000,
+      itemQuantities: { [DEFAULT_LABEL_PRODUCT_ID]: 1_000 },
+      giveBacks: ["flexible_delivery"],
+      awaitSeller: true,
+      note: "Can you meet ₹45,000 if delivery slips two days?",
+    });
+    expect(submitted.outcome).toBe("buyer_submitted");
+    const waiting = await getNegotiation(session.id);
+    expect(waiting.status).toBe("open");
+    expect(waiting.waitingFor).toBe("seller");
+    expect(waiting.messages.some((message) => message.body.includes("₹45,000"))).toBe(
+      true
+    );
+    const sellerView = await getNegotiation(session.id, { role: "seller" });
+    expect(JSON.stringify(sellerView)).toContain("floorPricePaise");
+    const buyerView = await getNegotiation(session.id, { role: "buyer" });
+    expect(JSON.stringify(buyerView)).not.toContain("floorPricePaise");
+    const responded = await respondAsSeller(session.id, {
+      note: "Policy will price the next concession.",
+    });
+    expect(responded.outcome).toMatch(/countered|accepted|rejected/);
   });
 
   it("deduplicates session creation by idempotency key", async () => {

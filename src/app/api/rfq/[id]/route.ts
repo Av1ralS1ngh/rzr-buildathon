@@ -7,6 +7,7 @@ import type { LabelSpec, RfqStatus } from "@/lib/types";
 import type { QuoteRow, RfqRow, CommitmentRow } from "@/lib/db-types";
 import { editableBeforePayment } from "@/lib/state-machine";
 import { hashSpec } from "@/lib/commitment";
+import { getProduct } from "@/lib/commerce/catalog";
 import {
   labelSpecSchema,
   updateRfqSchema,
@@ -65,6 +66,10 @@ async function getRfq(
       }
     | undefined;
 
+  const product = rfq.product_id
+    ? await getProduct(rfq.product_id, true)
+    : null;
+
   return NextResponse.json({
     rfq: {
       id: rfq.id,
@@ -85,6 +90,10 @@ async function getRfq(
         : null,
       clarification: rfq.clarification_json
         ? JSON.parse(rfq.clarification_json)
+        : null,
+      productId: rfq.product_id,
+      product: product
+        ? { id: product.id, sku: product.sku, name: product.name, unit: product.unit }
         : null,
       createdAt: rfq.created_at,
     },

@@ -19,7 +19,7 @@ Custom food and cosmetics labels do not have SKUs. Before checkout, someone must
    - `label-rules` — FSSAI 2011 + Legal Metrology PCR 2011 statutory pack
    - `print-check` — local PDF/PNG/JPEG byte inspector, plus Enfocus if configured
    - `capacity` — merchant MOQ and ship-date feasibility
-4. Deterministic **pricebook** generates quote (LLM never sets price).
+4. Deterministic **pricebook** generates quote (LLM never sets price). Merchants edit the live rate card and SKU catalog in the Catalog tab.
 5. Human pays **deposit via Razorpay** Standard Checkout (test mode), with an explicit local mock fallback.
 6. **Spec Commitment** binds payment to spec hash; production locks.
 7. Full **audit trail** for judges and merchants.
@@ -33,8 +33,10 @@ Humans never see crypto. x402 is only for machine verification.
 - Concessions are deterministic, round-limited, expiring, and may require a
   reciprocal commercial give-back.
 - Quantity changes must remain inside the buyer-authorized range.
-- Complementary foil wraps and packaging are proposed only when cross-selling is
-  explicitly permitted.
+- Complementary products are proposed only when cross-selling is
+  explicitly permitted and those SKUs exist in the catalog.
+- Buyer and seller agents can chat in separate rooms (`/agent/buyer/:id`,
+  `/agent/seller/:id`); the seller room is the only place floors and costs appear.
 - Accepted offers create signed open/closed checkout and payment mandates before
   Razorpay order creation.
 
@@ -77,16 +79,17 @@ Open http://localhost:43123
 
 ## Demo flow
 
-The web UI is a four-tab deal desk (Flow, Merchant, Negotiation, Agent mesh). On first load an intro film plays; use **SKIP** or **INTRO** to replay. `prefers-reduced-motion` skips the intro.
+The web UI is a five-tab deal desk (Flow, Catalog, Merchant, Negotiation, Agent mesh). On first load an intro film plays; use **SKIP** or **INTRO** to replay. `prefers-reduced-motion` skips the intro.
 
-1. Flow → sample pickle RFQ is prefilled. **Raise job** (optional artwork upload).
-2. **Run verification** — orchestrator buys label-rules, print-check, and capacity receipts.
-3. **Take deposit** → Razorpay test checkout, or mock capture when keys are absent.
-4. After lock, **Quote a change** prices a 10,000 → 12,000 revision; only the delta deposit is charged.
-5. Merchant tab lists live jobs; **Approve** for quotes over the ₹50,000 threshold.
-6. Negotiation tab opens a real two-agent session (floors redacted in buyer view).
-7. Agent mesh shows the x402 wire log and protocol surfaces.
-8. Telegram (optional): message the bot the same pickle sentence; it opens an RFQ and replies with the desk link.
+1. Catalog → inspect and edit the live pricebook, SKUs (list/target/floor/cost), and seller policy.
+2. Flow → sample pickle RFQ is prefilled. Leave **Custom job** selected to use the pricebook formula, or bind any SKU. **Raise job** (optional artwork upload).
+3. **Run verification** — orchestrator buys label-rules, print-check, and capacity receipts.
+4. **Take deposit** → Razorpay test checkout, or mock capture when keys are absent.
+5. After lock, **Quote a change** prices a quantity revision; only the delta deposit is charged.
+6. Merchant tab lists live jobs; **Approve** for quotes over the ₹50,000 threshold.
+7. Negotiation → pick any SKU, start a session, then **Open buyer + seller rooms** (two independent windows).
+8. Agent mesh shows the x402 wire log and protocol surfaces.
+9. Telegram (optional): message the bot the same pickle sentence; it opens an RFQ and replies with the desk link.
 
 Fonts are Instrument Sans + JetBrains Mono. Light/dark toggle is in the header.
 
@@ -108,8 +111,15 @@ Fonts are Instrument Sans + JetBrains Mono. Light/dark toggle is in the header.
 | `POST /api/telegram/setup` | Register webhook (internal secret) |
 | `GET /api/merchant/rfqs` | Merchant queue |
 | `GET /api/catalog` | Public merchant catalog (private costs/floors omitted) |
+| `GET /api/catalog?view=merchant` | Full SKU book including cost, target, and floor |
+| `POST /api/catalog` | Create a SKU |
+| `PATCH /api/catalog/:id` | Edit a SKU (including prices) |
+| `GET/PUT /api/pricebook` | Live rate card used by Flow quotes |
+| `GET/PUT /api/seller-policy` | Active seller negotiation policy |
 | `POST /api/negotiations` | Create negotiation and opening offer |
-| `POST /api/negotiations/:id/counter` | Submit bounded counteroffer |
+| `POST /api/negotiations/:id/counter` | Submit bounded counteroffer (`awaitSeller: true` waits for the seller room) |
+| `POST /api/negotiations/:id/respond` | Seller room runs price policy |
+| `GET/POST /api/negotiations/:id/messages` | Independent agent chat notes |
 | `POST /api/negotiations/:id/auto` | Run deterministic buyer/seller rounds |
 | `GET/POST /api/negotiations/:id/bundles` | Generate/select cross-sell bundles |
 | `POST /api/negotiations/:id/checkout` | Create mandate-bound Razorpay order |

@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const created = await createRfqFromText(result.data.rawText, "web");
+    const created = await createRfqFromText(result.data.rawText, "web", result.data.productId);
     return NextResponse.json(created, { status: 201 });
   });
 }
