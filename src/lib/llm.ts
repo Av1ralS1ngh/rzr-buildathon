@@ -34,7 +34,7 @@ function llmBaseUrl(): string {
 function llmModel(): string {
   if (process.env.LLM_MODEL?.trim()) return process.env.LLM_MODEL.trim();
   if (llmBaseUrl().includes("generativelanguage.googleapis.com")) {
-    return "gemini-2.5-flash";
+    return "gemini-3.6-flash";
   }
   return "gpt-4o-mini";
 }

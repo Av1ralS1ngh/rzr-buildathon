@@ -68,7 +68,7 @@ Open http://localhost:43123
 | `X402_PAY_TO` | For real x402 settle | Funded Base Sepolia USDC address; without it, capabilities still **402** (demo/internal keys still work) |
 | `X402_FACILITATOR_TOKEN` | Optional | Bearer token if the facilitator requires one |
 | `LLM_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` | Optional | LLM RFQ parser; rules extractor is the fallback |
-| `LLM_BASE_URL` / `LLM_MODEL` | Optional | Defaults to Gemini Flash via Google AI Studio’s OpenAI-compatible URL when those env vars are set |
+| `LLM_BASE_URL` / `LLM_MODEL` | Optional | Google AI Studio OpenAI-compatible URL + `gemini-3.6-flash` when those env vars are set |
 | `ENFOCUS_PREFLIGHT_URL` / `ENFOCUS_API_KEY` | Optional | HTTP PitStop/pdfToolbox; local inspector always runs |
 
 \*Without Razorpay keys, checkout runs in **mock mode** (still demonstrates idempotent deposit capture).
