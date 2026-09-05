@@ -5,6 +5,12 @@ import nextTypeScript from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTypeScript,
+  {
+    rules: {
+      // Client deal-desk bootstrapping (theme, fetch, hydration) is intentional.
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
   globalIgnores([
     "node_modules/**",
     ".next/**",

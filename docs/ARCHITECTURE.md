@@ -68,11 +68,14 @@ blocked (capability or policy failure)
 
 ## Data store
 
-SQLite (`data/speclock.db`) includes the original RFQ tables plus merchant
-catalog, seller policy, negotiation, immutable offer, bundle, mandate, commerce
-order, event-outbox, and idempotency tables.
+Production uses **Neon Postgres** when `DATABASE_URL` is set. Local development
+falls back to SQLite (`data/speclock.db` or `SPELOCK_DB_PATH`).
 
-The database enables WAL mode, foreign-key enforcement, a busy timeout, indexed
+Both backends share the original RFQ tables plus merchant catalog, seller
+policy, negotiation, immutable offer, bundle, mandate, commerce order,
+event-outbox, and idempotency tables.
+
+SQLite enables WAL mode, foreign-key enforcement, a busy timeout, indexed
 lookups, and additive startup migrations. One active commitment is allowed per
 quote; legacy duplicate attempts are retained as `superseded`.
 
@@ -94,9 +97,13 @@ quote; legacy duplicate attempts are retained as `superseded`.
 
 ## Production path
 
-1. Replace rules parser with LLM + Zod validation.
+Shipped for the hackathon: Neon Postgres, public HTTPS on Vercel, Razorpay test
+checkout, and the SpecLock v2 deal-desk UI.
+
+Still optional after the demo:
+
+1. Replace the rules parser with LLM + Zod validation.
 2. Configure an x402 facilitator and funded `X402_PAY_TO` address.
 3. Integrate a statutory data provider behind `label-rules`.
 4. Integrate print-check-cli / Enfocus for production preflight.
-5. Move SQLite to managed Postgres and add merchant/buyer authentication.
-6. Deploy with a public HTTPS URL for Razorpay webhooks.
+5. Add merchant/buyer authentication.

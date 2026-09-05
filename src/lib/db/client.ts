@@ -61,7 +61,7 @@ function databaseUrl(): string | undefined {
   return process.env.DATABASE_URL?.trim() || undefined;
 }
 
-function usePostgres(): boolean {
+function postgresEnabled(): boolean {
   return Boolean(databaseUrl());
 }
 
@@ -82,7 +82,7 @@ function toPg(sql: string): string {
 }
 
 function adaptSql(sql: string): string {
-  return usePostgres() ? toPg(sql) : sql;
+  return postgresEnabled() ? toPg(sql) : sql;
 }
 
 function schemaStatements(): string[] {
@@ -177,7 +177,7 @@ class DatabaseClient {
   }
 
   private async bootstrapSchema(): Promise<void> {
-    if (usePostgres()) {
+    if (postgresEnabled()) {
       const pool = this.getPool();
       for (const statement of schemaStatements()) {
         await pool.query(statement);
@@ -226,7 +226,7 @@ class DatabaseClient {
 
   async exec(sql: string): Promise<void> {
     await this.initSchema();
-    if (usePostgres()) {
+    if (postgresEnabled()) {
       const client = this.pgTxStore.getStore() ?? this.getPool();
       for (const statement of sql
         .split(";")
@@ -244,7 +244,7 @@ class DatabaseClient {
     return {
       run: async (...params: unknown[]) => {
         await this.initSchema();
-        if (usePostgres()) {
+        if (postgresEnabled()) {
           const client = this.pgTxStore.getStore() ?? this.getPool();
           const result = await client.query(adapted, params);
           return { changes: result.rowCount ?? 0 };
@@ -254,7 +254,7 @@ class DatabaseClient {
       },
       get: async <T = Record<string, unknown>>(...params: unknown[]) => {
         await this.initSchema();
-        if (usePostgres()) {
+        if (postgresEnabled()) {
           const client = this.pgTxStore.getStore() ?? this.getPool();
           const result = await client.query(adapted, params);
           return result.rows[0] ? coerceRow(result.rows[0] as T) : undefined;
@@ -265,7 +265,7 @@ class DatabaseClient {
       },
       all: async <T = Record<string, unknown>>(...params: unknown[]) => {
         await this.initSchema();
-        if (usePostgres()) {
+        if (postgresEnabled()) {
           const client = this.pgTxStore.getStore() ?? this.getPool();
           const result = await client.query(adapted, params);
           return (result.rows as T[]).map((row) => coerceRow(row));
@@ -277,7 +277,7 @@ class DatabaseClient {
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     await this.initSchema();
-    if (usePostgres()) {
+    if (postgresEnabled()) {
       if (this.pgTxStore.getStore()) {
         return await fn();
       }

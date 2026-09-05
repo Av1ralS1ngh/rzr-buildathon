@@ -762,6 +762,7 @@ function ExampleStrip(props) {
 export function SpecLockIntroEmbed(props) {
   return (
     <CompositionStage width={W} height={H} scenes={OM_SCENES} persist={false}
+      autoplay={false} loop={false}
       playback={'{"mode":"times","count":1}'} bg={palette(props.dark).bg}>
       <Piece dark={props.dark} showCaptions={props.showCaptions !== false} />
     </CompositionStage>

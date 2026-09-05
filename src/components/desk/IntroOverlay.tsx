@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { SpecLockIntroEmbed } from "@/components/intro/speclock-intro";
 
 const PHASES = [6600, 58600, 13400, 4200];
@@ -79,6 +79,7 @@ export function IntroOverlay({
   const [playing, setPlaying] = useState(true);
   const [half, setHalf] = useState(false);
   const [fading, setFading] = useState(false);
+  const [epoch, setEpoch] = useState(0);
   const elapsed = useRef(0);
   const last = useRef<number | null>(null);
   const raf = useRef<number | null>(null);
@@ -86,9 +87,11 @@ export function IntroOverlay({
   const playingRef = useRef(true);
   const fadingRef = useRef(false);
 
-  sceneRef.current = scene;
-  playingRef.current = playing;
-  fadingRef.current = fading;
+  useLayoutEffect(() => {
+    sceneRef.current = scene;
+    playingRef.current = playing;
+    fadingRef.current = fading;
+  }, [scene, playing, fading]);
 
   const stopClock = useCallback(() => {
     if (raf.current) cancelAnimationFrame(raf.current);
@@ -111,12 +114,13 @@ export function IntroOverlay({
         return;
       }
       elapsed.current = 0;
+      last.current = null;
+      sceneRef.current = i;
+      playingRef.current = true;
       setHalf(false);
       setScene(i);
-      sceneRef.current = i;
       setPlaying(true);
-      playingRef.current = true;
-      if (i === 1) driveFilm(0, true);
+      setEpoch((n) => n + 1);
     },
     [endIntro, stopClock]
   );
@@ -146,10 +150,29 @@ export function IntroOverlay({
     raf.current = requestAnimationFrame(tick);
   }, [goScene]);
 
-  useEffect(() => {
-    startClock();
-    return stopClock;
-  }, [scene, playing, startClock, stopClock]);
+  useLayoutEffect(() => {
+    if (fading || !playing) return;
+    let cancelled = false;
+    let kick = 0;
+    const boot = () => {
+      if (cancelled) return;
+      if (scene === 1) {
+        const root = document.querySelector("[data-om-exportable-video-with-duration-secs]");
+        if (!root) {
+          kick = requestAnimationFrame(boot);
+          return;
+        }
+        driveFilm(elapsed.current / 1000, true);
+      }
+      startClock();
+    };
+    boot();
+    return () => {
+      cancelled = true;
+      if (kick) cancelAnimationFrame(kick);
+      stopClock();
+    };
+  }, [scene, playing, fading, epoch, startClock, stopClock]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -158,12 +181,12 @@ export function IntroOverlay({
       e.stopImmediatePropagation();
       if (playingRef.current) {
         stopClock();
-        setPlaying(false);
         playingRef.current = false;
+        setPlaying(false);
         if (sceneRef.current === 1) driveFilm(elapsed.current / 1000, false);
       } else {
-        setPlaying(true);
         playingRef.current = true;
+        setPlaying(true);
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -214,11 +237,13 @@ export function IntroOverlay({
             className="sl-btn sl-btn-chip"
             onClick={(e) => {
               e.stopPropagation();
-              if (playing) {
+              if (playingRef.current) {
                 stopClock();
+                playingRef.current = false;
                 setPlaying(false);
-                if (scene === 1) driveFilm(elapsed.current / 1000, false);
+                if (sceneRef.current === 1) driveFilm(elapsed.current / 1000, false);
               } else {
+                playingRef.current = true;
                 setPlaying(true);
               }
             }}

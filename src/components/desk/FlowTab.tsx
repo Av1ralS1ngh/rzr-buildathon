@@ -112,8 +112,9 @@ export function FlowTab({
 
   useEffect(() => {
     rm.current = prefersReducedMotion();
+    const scheduled = timers.current;
     return () => {
-      timers.current.forEach(clearTimeout);
+      for (const id of scheduled) window.clearTimeout(id);
     };
   }, []);
 
@@ -158,19 +159,32 @@ export function FlowTab({
 
   useEffect(() => {
     if (!initialRfqId) return;
-    load(initialRfqId)
-      .then((body) => {
-        setRfqId(body.rfq.id);
-        setRawText(body.rfq.rawText);
-        const nextStep = stepFromStatus(body.rfq.status, true);
-        setStep(nextStep);
-        if (body.quote) setTotalDisplay(formatInr(body.quote.totalPaise, false));
-        if (body.commitment?.status === "locked") {
-          const hash = body.commitment.commitmentHash ?? body.quote?.specHash ?? "";
-          setHashTyped(hash ? `sha256:${hash}` : "");
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const body = await load(initialRfqId);
+          if (cancelled) return;
+          setRfqId(body.rfq.id);
+          setRawText(body.rfq.rawText);
+          const nextStep = stepFromStatus(body.rfq.status, true);
+          setStep(nextStep);
+          if (body.quote) setTotalDisplay(formatInr(body.quote.totalPaise, false));
+          if (body.commitment?.status === "locked") {
+            const hash = body.commitment.commitmentHash ?? body.quote?.specHash ?? "";
+            setHashTyped(hash ? `sha256:${hash}` : "");
+          }
+        } catch (cause) {
+          if (!cancelled) {
+            setError(cause instanceof Error ? cause.message : "Unable to load RFQ");
+          }
         }
-      })
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Unable to load RFQ"));
+      })();
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [initialRfqId, load]);
 
   const countTo = useCallback(
