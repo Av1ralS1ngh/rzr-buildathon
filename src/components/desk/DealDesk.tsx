@@ -126,6 +126,8 @@ export function DealDesk({
                   scrollEl?.scrollTo({ top: 0 });
                   if (t.key === "merchant") history.replaceState(null, "", "/merchant");
                   else if (t.key === "catalog") history.replaceState(null, "", "/catalog");
+                  else if (t.key === "negotiate") history.replaceState(null, "", "/negotiation");
+                  else if (t.key === "mesh") history.replaceState(null, "", "/");
                   else if (t.key === "flow" && rfqId) history.replaceState(null, "", `/rfq/${rfqId}`);
                   else history.replaceState(null, "", "/");
                 }}

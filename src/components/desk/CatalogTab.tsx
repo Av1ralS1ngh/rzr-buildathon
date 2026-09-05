@@ -106,29 +106,37 @@ export function CatalogTab() {
   const [busy, setBusy] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState(EMPTY_SKU);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const [bookRes, catRes, polRes] = await Promise.all([
-      fetch("/api/pricebook", { cache: "no-store" }),
-      fetch("/api/catalog?view=merchant", { cache: "no-store" }),
-      fetch("/api/seller-policy", { cache: "no-store" }),
-    ]);
-    const book = await readApiJson<Pricebook & { error?: string }>(bookRes);
-    const cat = await readApiJson<{ products?: Sku[]; error?: string }>(catRes);
-    const pol = await readApiJson<Policy & { error?: string }>(polRes);
-    if (!bookRes.ok) throw new Error(book.error ?? "Unable to load pricebook");
-    if (!catRes.ok) throw new Error(cat.error ?? "Unable to load catalog");
-    if (!polRes.ok) throw new Error(pol.error ?? "Unable to load seller policy");
-    setPricebook(book);
-    setSkus(cat.products ?? []);
-    setPolicy(pol);
+    setLoading(true);
+    const failures: string[] = [];
+    try {
+      const [bookRes, catRes, polRes] = await Promise.all([
+        fetch("/api/pricebook", { cache: "no-store" }),
+        fetch("/api/catalog?view=merchant", { cache: "no-store" }),
+        fetch("/api/seller-policy", { cache: "no-store" }),
+      ]);
+      const book = await readApiJson<Pricebook & { error?: string }>(bookRes);
+      const cat = await readApiJson<{ products?: Sku[]; error?: string }>(catRes);
+      const pol = await readApiJson<Policy & { error?: string }>(polRes);
+      if (bookRes.ok) setPricebook(book);
+      else failures.push(book.error ?? "Unable to load pricebook");
+      if (catRes.ok) setSkus(cat.products ?? []);
+      else failures.push(cat.error ?? "Unable to load catalog");
+      if (polRes.ok) setPolicy(pol);
+      else failures.push(pol.error ?? "Unable to load seller policy");
+      setError(failures.length > 0 ? failures.join(" · ") : null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load catalog");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      void load().catch((cause) => {
-        setError(cause instanceof Error ? cause.message : "Unable to load catalog");
-      });
+      void load();
     }, 0);
     return () => window.clearTimeout(timer);
   }, [load]);
@@ -283,8 +291,18 @@ export function CatalogTab() {
       <p style={{ margin: "10px 0 0", maxWidth: 640, color: "var(--ink-2)", fontSize: 14 }}>
         Flow quotes custom jobs from this rate card. Negotiation rooms bargain against catalog SKUs. Changing a SKU here updates the database; the seed file is only the first insert.
       </p>
-      {error && <p style={{ marginTop: 14, color: "var(--flag)", fontSize: 13 }}>{error}</p>}
+      {error && (
+        <p style={{ marginTop: 14, color: "var(--flag)", fontSize: 13 }}>
+          {error}{" "}
+          <button type="button" className="sl-btn sl-btn-chip" onClick={() => void load()}>
+            RETRY
+          </button>
+        </p>
+      )}
       {notice && <p style={{ marginTop: 14, color: "var(--seal)", fontSize: 13 }}>{notice}</p>}
+      {loading && !pricebook && (
+        <p style={{ marginTop: 14, fontSize: 13, color: "var(--ink-3)" }}>Loading rate card and SKUs…</p>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 24 }}>
         {pricebook && (
@@ -334,6 +352,13 @@ export function CatalogTab() {
               <span>COST</span>
               <span />
             </div>
+            {skus.length === 0 && (
+              <div style={{ fontSize: 12.5, color: "var(--ink-3)", padding: "8px 0 16px" }}>
+                {loading
+                  ? "Loading SKUs…"
+                  : "No SKUs in this merchant book yet. Add one below — pickle, foil, boxes, or anything else."}
+              </div>
+            )}
             {skus.map((sku) => (
               <div
                 key={sku.id}
