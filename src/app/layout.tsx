@@ -1,21 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const instrumentSans = Instrument_Sans({
+  variable: "--font-instrument",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
+  weight: ["400", "500"],
 });
 
 export const metadata: Metadata = {
-  title: "SpecLock — Custom label agent commerce",
+  title: "SpecLock — Agentic checkout for custom manufacturing",
   description:
-    "Razorpay deposits for humans, x402 verification for AI agents. Razorpay Buildathon Track 01.",
+    "Mandate-aware deal desk for custom labels. Humans pay rupee deposits via Razorpay; agents verify specs over x402. Razorpay AI Buildathon Track 01.",
 };
 
 export default function RootLayout({
@@ -26,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${instrumentSans.variable} ${jetbrainsMono.variable} antialiased`}
       >
         {children}
       </body>

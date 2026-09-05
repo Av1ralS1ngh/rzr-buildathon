@@ -71,13 +71,17 @@ Open http://localhost:43123
 
 ## Demo flow
 
-1. Home → submit sample pickle label RFQ.
-2. Review/edit parsed fields and optionally upload PDF/PNG/JPEG artwork.
-3. Open RFQ → **Run agent verification** (orchestrator + capability receipts).
-4. **Pay deposit** → Razorpay test checkout or mock capture.
-5. Propose a priced revision after lock; only its incremental deposit is charged.
-6. Merchant dashboard → approve large quotes and see status and commitment.
-7. Audit log shows capability purchases and payment events.
+The web UI is a four-tab deal desk (Flow, Merchant, Negotiation, Agent mesh). On first load an intro film plays; use **SKIP** or **INTRO** to replay. `prefers-reduced-motion` skips the intro.
+
+1. Flow → sample pickle RFQ is prefilled. **Raise job** (optional artwork upload).
+2. **Run verification** — orchestrator buys label-rules, print-check, and capacity receipts.
+3. **Take deposit** → Razorpay test checkout, or mock capture when keys are absent.
+4. After lock, **Quote a change** prices a 10,000 → 12,000 revision; only the delta deposit is charged.
+5. Merchant tab lists live jobs; **Approve** for quotes over the ₹50,000 threshold.
+6. Negotiation tab opens a real two-agent session (floors redacted in buyer view).
+7. Agent mesh shows the x402 wire log and protocol surfaces.
+
+Fonts are Instrument Sans + JetBrains Mono. Light/dark toggle is in the header.
 
 ## API overview
 

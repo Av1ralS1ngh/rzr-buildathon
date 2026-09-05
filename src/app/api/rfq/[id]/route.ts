@@ -107,6 +107,7 @@ async function getRfq(
           artworkHash: commitment.artwork_hash,
           razorpayOrderId: commitment.razorpay_order_id,
           razorpayPaymentId: commitment.razorpay_payment_id,
+          commitmentHash: commitment.commitment_hash,
         }
       : null,
     revision: revision
