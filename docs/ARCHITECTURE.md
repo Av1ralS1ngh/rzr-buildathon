@@ -81,8 +81,12 @@ quote; legacy duplicate attempts are retained as `superseded`.
 
 ## Security notes
 
-- LLM extraction is rules-based in MVP (no API key required).
-- Pricing is always `lib/pricebook.ts`.
+- RFQ extraction uses LLM + Zod when an API key is set, otherwise the rules
+  parser. Either path is validated; pricing is always `lib/pricebook.ts`.
+- `label-rules` is the embedded FSSAI 2011 + Legal Metrology PCR 2011 pack, not
+  a live government API and not a legal certificate.
+- `print-check` inspects PDF/PNG/JPEG bytes locally. Enfocus PitStop is optional
+  via `ENFOCUS_PREFLIGHT_URL`.
 - Webhook signature validated on raw body when secret configured.
 - Live payment confirmations require all Razorpay signature fields.
 - Webhook events and checkout creation are idempotent.
@@ -97,13 +101,13 @@ quote; legacy duplicate attempts are retained as `superseded`.
 
 ## Production path
 
-Shipped for the hackathon: Neon Postgres, public HTTPS on Vercel, Razorpay test
-checkout, and the SpecLock v2 deal-desk UI.
+Shipped: Neon Postgres, public HTTPS on Vercel, Razorpay test checkout, SpecLock
+v2 deal-desk UI, public x402.org facilitator client, statutory label-rules pack,
+local print preflight, LLM parser with rules fallback.
 
-Still optional after the demo:
+Still needs **your** secrets (the demo keeps working without them):
 
-1. Replace the rules parser with LLM + Zod validation.
-2. Configure an x402 facilitator and funded `X402_PAY_TO` address.
-3. Integrate a statutory data provider behind `label-rules`.
-4. Integrate print-check-cli / Enfocus for production preflight.
-5. Add merchant/buyer authentication.
+1. Funded `X402_PAY_TO` on Base Sepolia so agent payments can settle.
+2. `LLM_API_KEY` (or `OPENAI_API_KEY` / `NEON_AI_API_KEY`) for the LLM overlay.
+3. `ENFOCUS_PREFLIGHT_URL` + `ENFOCUS_API_KEY` if you have PitStop Server.
+4. Merchant/buyer authentication after the hackathon.

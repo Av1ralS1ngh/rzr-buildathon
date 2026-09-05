@@ -2,7 +2,7 @@ import db from "./db";
 import type { LabelSpec, CapabilityReceipt } from "./types";
 import { hashSpec, newId } from "./commitment";
 import { runLabelRulesCheck } from "./capabilities/label-rules";
-import { runPrintCheck } from "./capabilities/print-check";
+import { runPrintCheck, type PrintCheckInput } from "./capabilities/print-check";
 import { runCapacityCheck } from "./capabilities/capacity";
 import { calculateQuote, getPricebookVersion } from "./pricebook";
 import { policyCheckQuote } from "./policy";
@@ -17,6 +17,7 @@ export async function orchestrateRfq(
     mimeType?: "application/pdf" | "image/png" | "image/jpeg";
     hash?: string;
     fields?: Record<string, boolean>;
+    inspection?: PrintCheckInput["inspection"];
   }
 ): Promise<{
   receipts: CapabilityReceipt[];
@@ -77,6 +78,9 @@ export async function orchestrateRfq(
     filename: artworkMeta?.filename ?? "artwork.pdf",
     sizeBytes: artworkMeta?.sizeBytes ?? 0,
     mimeType: artworkMeta?.mimeType,
+    trimWidthMm: spec.widthMm,
+    trimHeightMm: spec.heightMm,
+    inspection: artworkMeta?.inspection,
   });
   receipts.push({
     capability: "print_check",

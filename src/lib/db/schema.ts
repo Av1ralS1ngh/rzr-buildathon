@@ -9,6 +9,7 @@ export const SCHEMA_SQL = `
     artwork_name TEXT,
     artwork_mime TEXT,
     artwork_size INTEGER,
+    artwork_preflight_json TEXT,
     clarification_json TEXT,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL

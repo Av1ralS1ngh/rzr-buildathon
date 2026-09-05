@@ -8,6 +8,7 @@ import type { RfqRow } from "@/lib/db-types";
 import type { RfqStatus } from "@/lib/types";
 import { orchestrationSchema, validationMessage } from "@/lib/validation";
 import { handleRoute } from "@/lib/api-response";
+import type { PrintCheckInput } from "@/lib/capabilities/print-check";
 
 export const runtime = "nodejs";
 
@@ -65,6 +66,9 @@ async function orchestrate(
 
   try {
     const body = parsedBody.data;
+    const storedPreflight = rfq.artwork_preflight_json
+      ? (JSON.parse(rfq.artwork_preflight_json) as { inspection?: PrintCheckInput["inspection"] })
+      : null;
     const result = await orchestrateRfq(id, spec, {
       filename: rfq.artwork_name ?? body.artworkFilename ?? "artwork.pdf",
       sizeBytes: rfq.artwork_size ?? body.artworkSizeBytes ?? 0,
@@ -75,6 +79,7 @@ async function orchestrate(
         | undefined,
       hash: rfq.artwork_hash ?? undefined,
       fields: body.artworkFields,
+      inspection: storedPreflight?.inspection,
     });
     return NextResponse.json(result, { status: result.blocked ? 422 : 200 });
   } catch (error) {

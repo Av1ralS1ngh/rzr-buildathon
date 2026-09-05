@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
-import { parseRfqText } from "@/lib/rfq-parser";
+import { parseRfq } from "@/lib/rfq-parser";
 import { logAudit } from "@/lib/audit";
 import { newId } from "@/lib/commitment";
 import { createRfqSchema, validationMessage } from "@/lib/validation";
@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
     }
     const { rawText } = result.data;
 
-    const parsed = parseRfqText(rawText);
+    const parsed = await parseRfq(rawText);
     const id = newId("rfq");
     const status =
       parsed.missingFields.length > 0 ||
@@ -42,6 +42,8 @@ export async function POST(req: NextRequest) {
         JSON.stringify({
           missingFields: parsed.missingFields,
           questions: parsed.clarificationQuestions,
+          engine: parsed.engine,
+          llmModel: parsed.llmModel ?? null,
         }),
         Date.now(),
         Date.now()
@@ -50,6 +52,8 @@ export async function POST(req: NextRequest) {
     await logAudit(id, "buyer_agent", "rfq_created", {
       missingFields: parsed.missingFields,
       confidence: parsed.confidence,
+      engine: parsed.engine,
+      llmModel: parsed.llmModel,
     });
 
     return NextResponse.json(
@@ -59,6 +63,7 @@ export async function POST(req: NextRequest) {
         spec: parsed.spec,
         missingFields: parsed.missingFields,
         clarificationQuestions: parsed.clarificationQuestions,
+        engine: parsed.engine,
       },
       { status: 201 }
     );

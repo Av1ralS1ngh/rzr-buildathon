@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import db from "@/lib/db";
 import { hashArtwork } from "@/lib/commitment";
+import { inspectArtworkBytes, mergeArtworkInspection } from "@/lib/preflight/artwork";
+import { runEnfocusPreflight } from "@/lib/enfocus";
+import { runPrintCheck } from "@/lib/capabilities/print-check";
+import type { LabelSpec } from "@/lib/types";
 import type { RfqRow } from "@/lib/db-types";
 import type { RfqStatus } from "@/lib/types";
 import { editableBeforePayment } from "@/lib/state-machine";
@@ -55,8 +59,9 @@ export async function POST(
     );
   }
 
+  const mimeType = value.type as "application/pdf" | "image/png" | "image/jpeg";
   const buffer = Buffer.from(await value.arrayBuffer());
-  if (!matchesMagicBytes(buffer, value.type)) {
+  if (!matchesMagicBytes(buffer, mimeType)) {
     return NextResponse.json(
       { error: "File contents do not match the declared artwork type" },
       { status: 415 }
@@ -64,15 +69,38 @@ export async function POST(
   }
 
   const hash = hashArtwork(buffer);
+  const spec = JSON.parse(rfq.spec_json ?? "{}") as Partial<LabelSpec>;
+  let inspection = inspectArtworkBytes(buffer, mimeType);
+  const enfocus = await runEnfocusPreflight(buffer, safeFilename(value.name), mimeType);
+  if (enfocus) {
+    inspection = mergeArtworkInspection(inspection, enfocus);
+  }
+  const preflight = runPrintCheck({
+    filename: safeFilename(value.name),
+    sizeBytes: value.size,
+    mimeType,
+    trimWidthMm: spec.widthMm,
+    trimHeightMm: spec.heightMm,
+    inspection,
+  });
   await db.transaction(async () => {
     await db
       .prepare(
         `UPDATE rfqs
        SET artwork_hash = ?, artwork_name = ?, artwork_mime = ?, artwork_size = ?,
+           artwork_preflight_json = ?,
            status = 'draft', updated_at = ?
        WHERE id = ?`
       )
-      .run(hash, safeFilename(value.name), value.type, value.size, Date.now(), id);
+      .run(
+        hash,
+        safeFilename(value.name),
+        value.type,
+        value.size,
+        JSON.stringify({ inspection, print: preflight }),
+        Date.now(),
+        id
+      );
     await db
       .prepare(
         `UPDATE quotes SET status = 'superseded'
@@ -84,6 +112,8 @@ export async function POST(
       mimeType: value.type,
       sizeBytes: value.size,
       hash,
+      printStatus: preflight.status,
+      engine: inspection.engine,
     });
   });
 
@@ -94,6 +124,7 @@ export async function POST(
       sizeBytes: value.size,
       hash,
     },
+    preflight,
   });
 }
 

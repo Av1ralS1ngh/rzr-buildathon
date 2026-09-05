@@ -13,12 +13,36 @@ export const X402_PRICES_USD = {
   capacity: "0.01",
 } as const;
 
+export const DEFAULT_X402_FACILITATOR_URL = "https://x402.org/facilitator";
+export const DEFAULT_X402_NETWORK = "eip155:84532";
+export const DEFAULT_X402_USDC =
+  "0x036CbD53842cFd8590b1C631E3ac9657c6c6d4d4";
+
 export type CapabilityName = keyof typeof X402_PRICES_USD;
+
+export function x402FacilitatorUrl(): string {
+  return (process.env.X402_FACILITATOR_URL?.trim() || DEFAULT_X402_FACILITATOR_URL).replace(
+    /\/+$/,
+    ""
+  );
+}
+
+export function x402PayTo(): string | undefined {
+  const payTo = process.env.X402_PAY_TO?.trim();
+  if (!payTo) return undefined;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(payTo)) return undefined;
+  if (/^0x0+$/.test(payTo)) return undefined;
+  return payTo;
+}
+
+export function x402SettlementReady(): boolean {
+  return Boolean(x402PayTo());
+}
 
 export function paymentRequirements(
   capability: CapabilityName
 ): PaymentRequirements {
-  const network = process.env.X402_NETWORK ?? "eip155:84532";
+  const network = process.env.X402_NETWORK ?? DEFAULT_X402_NETWORK;
   if (!network.includes(":")) {
     throw new Error("X402_NETWORK must use CAIP-2 format");
   }
@@ -26,11 +50,9 @@ export function paymentRequirements(
     scheme: "exact",
     network: network as Network,
     amount: usdToAtomic(X402_PRICES_USD[capability]),
-    payTo: process.env.X402_PAY_TO ?? "0x0000000000000000000000000000000000000000",
+    payTo: x402PayTo() ?? "0x0000000000000000000000000000000000000000",
     maxTimeoutSeconds: 120,
-    asset:
-      process.env.X402_USDC_ADDRESS ??
-      "0x036CbD53842cFd8590b1C631E3ac9657c6c6d4d4",
+    asset: process.env.X402_USDC_ADDRESS ?? DEFAULT_X402_USDC,
     extra: {},
   };
 }
@@ -56,6 +78,51 @@ export function buildPaymentRequired(
 function usdToAtomic(usd: string): string {
   const n = parseFloat(usd);
   return String(Math.round(n * 1_000_000));
+}
+
+export function facilitatorClient(): HTTPFacilitatorClient {
+  const facilitatorToken = process.env.X402_FACILITATOR_TOKEN;
+  return new HTTPFacilitatorClient({
+    url: x402FacilitatorUrl(),
+    createAuthHeaders: facilitatorToken
+      ? async () => {
+          const headers = { Authorization: `Bearer ${facilitatorToken}` };
+          return { verify: headers, settle: headers, supported: headers };
+        }
+      : undefined,
+  });
+}
+
+export async function x402FacilitatorStatus(): Promise<{
+  facilitatorUrl: string;
+  network: string;
+  payTo: string | null;
+  settlementReady: boolean;
+  supported: boolean;
+  error?: string;
+}> {
+  const payTo = x402PayTo() ?? null;
+  const status = {
+    facilitatorUrl: x402FacilitatorUrl(),
+    network: process.env.X402_NETWORK ?? DEFAULT_X402_NETWORK,
+    payTo,
+    settlementReady: Boolean(payTo),
+    supported: false,
+  };
+  try {
+    const supported = await Promise.race([
+      facilitatorClient().getSupported(),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("Facilitator timeout")), 4_000);
+      }),
+    ]);
+    return { ...status, supported: Array.isArray(supported?.kinds) ? supported.kinds.length > 0 : true };
+  } catch (error) {
+    return {
+      ...status,
+      error: error instanceof Error ? error.message : "Facilitator unreachable",
+    };
+  }
 }
 
 export async function authorizeCapability(
@@ -84,13 +151,11 @@ export async function authorizeCapability(
     return { ok: false, mode: "none" };
   }
 
-  const facilitatorUrl = process.env.X402_FACILITATOR_URL;
-  const payTo = process.env.X402_PAY_TO;
-  if (!facilitatorUrl || !payTo) {
+  if (!x402SettlementReady()) {
     return {
       ok: false,
       mode: "none",
-      error: "x402 settlement is not configured",
+      error: "x402 settlement needs X402_PAY_TO (Base Sepolia USDC address)",
     };
   }
 
@@ -108,16 +173,7 @@ export async function authorizeCapability(
     }
     const typedPayload = payload as PaymentPayload;
     const requirements = paymentRequirements(capability);
-    const facilitatorToken = process.env.X402_FACILITATOR_TOKEN;
-    const client = new HTTPFacilitatorClient({
-      url: facilitatorUrl,
-      createAuthHeaders: facilitatorToken
-        ? async () => {
-            const headers = { Authorization: `Bearer ${facilitatorToken}` };
-            return { verify: headers, settle: headers, supported: headers };
-          }
-        : undefined,
-    });
+    const client = facilitatorClient();
 
     const verified = await client.verify(typedPayload, requirements);
     if (!verified.isValid) {
@@ -142,7 +198,8 @@ export async function authorizeCapability(
       mode: "x402",
       paymentResponse: Buffer.from(JSON.stringify(settled)).toString("base64"),
     };
-  } catch {
-    return { ok: false, mode: "none", error: "Malformed or invalid payment" };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Malformed or invalid payment";
+    return { ok: false, mode: "none", error: message };
   }
 }

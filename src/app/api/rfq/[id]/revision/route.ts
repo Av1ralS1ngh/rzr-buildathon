@@ -88,6 +88,11 @@ export async function POST(
     return NextResponse.json({ error: "Original quote not found" }, { status: 409 });
   }
 
+  const storedPreflight = rfq.artwork_preflight_json
+    ? (JSON.parse(rfq.artwork_preflight_json) as {
+        inspection?: Parameters<typeof runPrintCheck>[0]["inspection"];
+      })
+    : null;
   const rules = runLabelRulesCheck(newSpec);
   const print = runPrintCheck({
     filename: rfq.artwork_name ?? "artwork.pdf",
@@ -97,6 +102,9 @@ export async function POST(
       | "image/png"
       | "image/jpeg"
       | undefined,
+    trimWidthMm: newSpec.widthMm,
+    trimHeightMm: newSpec.heightMm,
+    inspection: storedPreflight?.inspection,
   });
   const capacity = runCapacityCheck(newSpec, newHash);
   const failed = [rules, print, capacity].filter((result) => result.status === "fail");

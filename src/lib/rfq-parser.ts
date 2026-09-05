@@ -1,10 +1,14 @@
 import type { LabelSpec } from "./types";
+import { completeJson, llmConfigured } from "./llm";
+import { labelSpecPatchSchema } from "./validation";
 
 export interface ParseResult {
   spec: Partial<LabelSpec>;
   missingFields: string[];
   clarificationQuestions: string[];
   confidence: number;
+  engine: "rules" | "llm+zod";
+  llmModel?: string;
 }
 
 const DEFAULTS: Partial<LabelSpec> = {
@@ -53,6 +57,8 @@ export function parseRfqText(raw: string): ParseResult {
 
   if (text.includes("pickle") || text.includes("food") || text.includes("jar")) {
     spec.productType = "pickle_jar_label";
+  } else if (/cosmetic|lotion|cream|serum|lipstick/.test(text)) {
+    spec.productType = "cosmetics_label";
   }
   if (text.includes("oil") || text.includes("grease")) {
     spec.oilExposure = true;
@@ -136,7 +142,69 @@ export function parseRfqText(raw: string): ParseResult {
     missingFields,
     clarificationQuestions,
     confidence: filled / 5,
+    engine: "rules",
   };
+}
+
+const LLM_SYSTEM = `You extract a SpecLock label RFQ into JSON. Never invent a selling price.
+Return only JSON with keys:
+productType, quantity, widthMm, heightMm, substrate (pp_white|pp_clear|pet_white),
+finish (matte|gloss|matte_lamination), oilExposure, refrigeration, deliveryDate (YYYY-MM-DD),
+deliveryPincode (6-digit India), budgetInr (number), fssaiLicense (14 digits or omit).
+Use null for unknown fields.`;
+
+export async function parseRfq(raw: string): Promise<ParseResult> {
+  const rules = parseRfqText(raw);
+  if (!llmConfigured()) return rules;
+  const llm = await completeJson(LLM_SYSTEM, raw);
+  if (!llm.ok || !llm.data || typeof llm.data !== "object") return rules;
+  const normalized = normalizeLlmSpec(llm.data as Record<string, unknown>);
+  const parsed = labelSpecPatchSchema.safeParse(normalized);
+  if (!parsed.success) return rules;
+  const spec = mergeSpec(rules.spec, parsed.data);
+  const scored = parseRfqText(raw);
+  scored.spec = spec;
+  const filled = ["quantity", "widthMm", "heightMm", "budgetPaise", "deliveryDate"].filter(
+    (f) => (spec as Record<string, unknown>)[f] !== undefined
+  ).length;
+  const missingFields: string[] = [];
+  if (!spec.quantity) missingFields.push("quantity");
+  if (!spec.widthMm || !spec.heightMm) missingFields.push("dimensions");
+  if (!spec.budgetPaise) missingFields.push("budget");
+  if (!spec.deliveryDate) missingFields.push("deliveryDate");
+  return {
+    spec,
+    missingFields,
+    clarificationQuestions: scored.clarificationQuestions,
+    confidence: Math.min(1, Math.max(rules.confidence, filled / 5)),
+    engine: "llm+zod",
+    llmModel: llm.model,
+  };
+}
+
+function normalizeLlmSpec(data: Record<string, unknown>): Record<string, unknown> {
+  const allowed = [
+    "productType",
+    "quantity",
+    "widthMm",
+    "heightMm",
+    "substrate",
+    "finish",
+    "oilExposure",
+    "refrigeration",
+    "deliveryDate",
+    "deliveryPincode",
+    "budgetPaise",
+    "fssaiLicense",
+  ] as const;
+  const next: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (data[key] != null) next[key] = data[key];
+  }
+  if (typeof data.budgetInr === "number" && next.budgetPaise == null) {
+    next.budgetPaise = Math.round(data.budgetInr * 100);
+  }
+  return next;
 }
 
 export function mergeSpec(

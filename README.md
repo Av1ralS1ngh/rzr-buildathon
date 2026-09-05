@@ -14,10 +14,10 @@ Custom food and cosmetics labels do not have SKUs. Before checkout, someone must
 ## Solution
 
 1. Buyer submits messy RFQ (web UI simulates buyer agent).
-2. SpecLock parses spec and asks clarifying questions when needed.
+2. SpecLock parses the spec with an **LLM + Zod overlay** when `LLM_API_KEY` is set, otherwise a deterministic rules extractor. Clarifying questions fire when fields are missing. The LLM never sets price.
 3. **Agent orchestrator** obtains three capabilities (also exposed as x402-gated HTTP APIs):
-   - `label-rules` — required declaration field checklist
-   - `print-check` — artwork print-readiness heuristics
+   - `label-rules` — FSSAI 2011 + Legal Metrology PCR 2011 statutory pack
+   - `print-check` — local PDF/PNG/JPEG byte inspector, plus Enfocus if configured
    - `capacity` — merchant MOQ and ship-date feasibility
 4. Deterministic **pricebook** generates quote (LLM never sets price).
 5. Human pays **deposit via Razorpay** Standard Checkout (test mode), with an explicit local mock fallback.
@@ -64,8 +64,12 @@ Open http://localhost:43123
 | `MANDATE_SIGNING_SECRET` | Required in production | Derives issuer-scoped ES256 mandate keys |
 | `ACP_API_KEY` | Recommended in production | Protects the ACP checkout adapter |
 | `X402_DEMO_AGENT_KEY` | Optional | Demo agent header for capability APIs |
-| `X402_PAY_TO` / `X402_FACILITATOR_URL` | Optional | Verify and settle x402 v2 payments |
+| `X402_FACILITATOR_URL` | Optional | Defaults to `https://x402.org/facilitator` |
+| `X402_PAY_TO` | For real x402 settle | Funded Base Sepolia USDC address; without it, capabilities still **402** (demo/internal keys still work) |
 | `X402_FACILITATOR_TOKEN` | Optional | Bearer token if the facilitator requires one |
+| `LLM_API_KEY` / `OPENAI_API_KEY` / `NEON_AI_API_KEY` | Optional | LLM RFQ parser; rules extractor is the fallback |
+| `LLM_BASE_URL` / `LLM_MODEL` | Optional | OpenAI-compatible chat completions endpoint |
+| `ENFOCUS_PREFLIGHT_URL` / `ENFOCUS_API_KEY` | Optional | HTTP PitStop/pdfToolbox; local inspector always runs |
 
 \*Without Razorpay keys, checkout runs in **mock mode** (still demonstrates idempotent deposit capture).
 
@@ -96,6 +100,7 @@ Fonts are Instrument Sans + JetBrains Mono. Light/dark toggle is in the header.
 | `POST /api/rfq/:id/artwork` | Validate and fingerprint artwork (10 MB maximum) |
 | `POST /api/rfq/:id/approve` | Merchant quote approval |
 | `POST /api/capabilities/*` | x402-gated capability providers |
+| `GET /api/x402/status` | Live facilitator, parser, statute pack, Enfocus flags |
 | `POST /api/razorpay/webhook` | Webhook + client confirm |
 | `GET /api/merchant/rfqs` | Merchant queue |
 | `GET /api/catalog` | Public merchant catalog (private costs/floors omitted) |
@@ -127,9 +132,12 @@ Return `402 Payment Required` with `PAYMENT-REQUIRED` header unless authorized v
 - `X-Demo-Agent-Key` (hackathon demo)
 - `X-Speclock-Internal` (orchestrator)
 
-`PAYMENT-SIGNATURE` is never trusted on presence alone. When facilitator settings are
-present, the server validates and settles the x402 v2 payload before serving the
-capability and returns `PAYMENT-RESPONSE`.
+`PAYMENT-SIGNATURE` is never trusted on presence alone. The server talks to the
+configured facilitator (`X402_FACILITATOR_URL`, default `https://x402.org/facilitator`)
+to **verify then settle** an x402 v2 payload, and only then returns `PAYMENT-RESPONSE`.
+
+Settlement still needs a non-zero `X402_PAY_TO` (Base Sepolia USDC). Until that
+address is set, machine callers without the demo or internal key receive HTTP 402.
 
 ## Architecture
 

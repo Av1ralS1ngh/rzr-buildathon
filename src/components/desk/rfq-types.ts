@@ -7,12 +7,27 @@ export type RfqDetail = {
     status: string;
     rawText: string;
     spec: Record<string, unknown> | null;
-    clarification: { questions?: string[]; missingFields?: string[] } | null;
+    clarification: {
+      questions?: string[];
+      missingFields?: string[];
+      engine?: "rules" | "llm+zod";
+      llmModel?: string | null;
+    } | null;
     artwork: {
       hash: string;
       filename: string;
       mimeType: string;
       sizeBytes: number;
+      preflight?: {
+        inspection?: {
+          engine?: string;
+          dpi?: number;
+          bleedMm?: number;
+          widthMm?: number;
+          heightMm?: number;
+        };
+        print?: { status?: string };
+      } | null;
     } | null;
   };
   quote: {

@@ -1,7 +1,8 @@
 import type { LabelSpec } from "../types";
 import { newId } from "../commitment";
+import { STATUTE_PACK, statutoryRequirements } from "../statutes/india-packaged-goods";
 
-/** Rules derived from FSSAI labelling expectations for packaged foods (demo checklist). */
+/** Statutory FSSAI + Legal Metrology pack. Not a compliance certificate. */
 export function runLabelRulesCheck(
   spec: LabelSpec,
   artworkFields: Record<string, boolean> = {}
@@ -12,24 +13,12 @@ export function runLabelRulesCheck(
   receiptId: string;
   payload: Record<string, unknown>;
 } {
-  const requiredFields = [
-    "net_quantity",
-    "manufacturer_name",
-    "manufacturer_address",
-    "fssai_logo",
-    "fssai_license_number",
-    "mrp",
-    "batch_or_use_by",
-    "vegetarian_non_veg_symbol",
-  ];
-
-  if (spec.productType.includes("pickle") || spec.oilExposure) {
-    requiredFields.push("ingredient_list");
-  }
-
+  const pack = statutoryRequirements(spec);
+  const required = pack.filter((row) => row.required);
+  const requiredFields = required.map((row) => row.id);
   const suppliedArtworkFields = Object.keys(artworkFields).length > 0;
   const missingOnArtwork = suppliedArtworkFields
-    ? requiredFields.filter((field) => artworkFields[field] !== true)
+    ? required.filter((row) => artworkFields[row.id] !== true).map((row) => row.id)
     : [];
 
   let status: "pass" | "warn" | "fail" = "pass";
@@ -44,16 +33,17 @@ export function runLabelRulesCheck(
     receiptId: newId("rcpt_rules"),
     payload: {
       productType: spec.productType,
-      requiredFields,
+      pack: STATUTE_PACK,
+      required,
       missingOnArtwork,
       verificationScope: suppliedArtworkFields
         ? "submitted_artwork_fields"
         : "requirements_only",
       message: suppliedArtworkFields
         ? undefined
-        : "Artwork fields were not supplied; requirements were generated but content was not certified.",
+        : "Artwork field evidence was not supplied; the statute pack was generated but the plate was not certified.",
       disclaimer:
-        "Rules-based checklist — not a statutory compliance certificate.",
+        "Statutory requirements pack for Indian packaged goods. Not a legal compliance certificate.",
     },
   };
 }

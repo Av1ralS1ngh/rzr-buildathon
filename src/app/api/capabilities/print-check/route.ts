@@ -34,6 +34,11 @@ export async function POST(req: NextRequest) {
     mimeType: body.mimeType,
     minDpi: body.minDpi,
     minBleedMm: body.minBleedMm,
+    trimWidthMm: body.trimWidthMm,
+    trimHeightMm: body.trimHeightMm,
+    inspection: body.inspection
+      ? { ...body.inspection, notes: body.inspection.notes ?? [] }
+      : undefined,
   });
 
   return NextResponse.json(

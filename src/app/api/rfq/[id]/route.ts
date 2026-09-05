@@ -78,6 +78,9 @@ async function getRfq(
             filename: rfq.artwork_name,
             mimeType: rfq.artwork_mime,
             sizeBytes: rfq.artwork_size,
+            preflight: rfq.artwork_preflight_json
+              ? JSON.parse(rfq.artwork_preflight_json)
+              : null,
           }
         : null,
       clarification: rfq.clarification_json
@@ -167,6 +170,9 @@ async function patchRfq(
     ? []
     : [...new Set(shape.error.issues.map((issue) => String(issue.path[0] ?? "spec")))];
   const nextStatus = spec ? "draft" : "needs_clarification";
+  const previousClarification = rfq.clarification_json
+    ? (JSON.parse(rfq.clarification_json) as { engine?: string; llmModel?: string })
+    : {};
   const changed = spec
     ? hashSpec(spec) !== (labelSpecSchema.safeParse(existing).success
         ? hashSpec(existing as LabelSpec)
@@ -182,7 +188,12 @@ async function patchRfq(
       )
       .run(
         JSON.stringify(merged),
-        JSON.stringify({ missingFields, questions: [] }),
+        JSON.stringify({
+          missingFields,
+          questions: [],
+          engine: previousClarification.engine,
+          llmModel: previousClarification.llmModel ?? null,
+        }),
         nextStatus,
         Date.now(),
         id

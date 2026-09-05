@@ -70,6 +70,18 @@ export const labelRulesRequestSchema = z
   })
   .strict();
 
+export const artworkInspectionSchema = z
+  .object({
+    engine: z.string().trim().min(1).max(80),
+    pageCount: z.number().int().positive().max(500).optional(),
+    widthMm: z.number().positive().max(5_000).optional(),
+    heightMm: z.number().positive().max(5_000).optional(),
+    bleedMm: z.number().min(0).max(50).optional(),
+    dpi: z.number().positive().max(2_400).optional(),
+    notes: z.array(z.string().max(500)).max(40).optional(),
+  })
+  .strict();
+
 export const printCheckRequestSchema = z
   .object({
     filename: z.string().trim().min(1).max(255),
@@ -77,6 +89,9 @@ export const printCheckRequestSchema = z
     mimeType: z.enum(["application/pdf", "image/png", "image/jpeg"]).optional(),
     minDpi: z.number().int().min(72).max(1_200).optional(),
     minBleedMm: z.number().min(0).max(20).optional(),
+    trimWidthMm: z.number().positive().max(2_000).optional(),
+    trimHeightMm: z.number().positive().max(2_000).optional(),
+    inspection: artworkInspectionSchema.optional(),
   })
   .strict();
 

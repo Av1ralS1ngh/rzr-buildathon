@@ -55,6 +55,24 @@ function chipsFromSpec(spec: Partial<LabelSpec>): Chip[] {
   ];
 }
 
+function artworkCaption(artwork: {
+  sizeBytes: number;
+  hash: string;
+  preflight?: {
+    inspection?: { engine?: string; dpi?: number; bleedMm?: number };
+    print?: { status?: string };
+  } | null;
+}): string {
+  const parts = [`${(artwork.sizeBytes / 1024).toFixed(1)} KB`, shortenHash(artwork.hash)];
+  const dpi = artwork.preflight?.inspection?.dpi;
+  if (dpi) parts.push(`${dpi} DPI`);
+  const bleed = artwork.preflight?.inspection?.bleedMm;
+  if (bleed != null) parts.push(`${bleed}mm bleed`);
+  const engine = artwork.preflight?.inspection?.engine;
+  if (engine) parts.push(engine);
+  return parts.join(" · ");
+}
+
 function productTitle(spec: Record<string, unknown> | null) {
   const type = String(spec?.productType ?? "label");
   if (type.includes("pickle")) return "Mango pickle jar label";
@@ -652,7 +670,7 @@ export function FlowTab({
             <div style={{ padding: "4px 20px 0", borderTop: "1px solid var(--rule-soft)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 0 11px" }}>
                 <span style={{ fontFamily: "var(--font-code)", fontSize: 10, letterSpacing: "0.1em", color: "var(--ink-3)" }}>
-                  PARSED DETERMINISTICALLY · NO MODEL SETS PRICE
+                  PARSED · RULES PREVIEW · NO MODEL SETS PRICE
                 </span>
                 <span style={{ fontFamily: "var(--font-code)", fontSize: 10, letterSpacing: "0.1em", color: "var(--seal)" }}>
                   CONFIDENCE {parsed.confidence.toFixed(2)}
@@ -742,6 +760,9 @@ export function FlowTab({
                 <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: "-0.028em", marginTop: 6 }}>
                   {productTitle(spec)}
                 </div>
+                <div style={{ fontFamily: "var(--font-code)", fontSize: 10.5, color: "var(--plate-ink)", marginTop: 6 }}>
+                  {(data?.rfq.clarification?.engine ?? "rules").toUpperCase()} PARSER · PRICEBOOK ONLY
+                </div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontFamily: "var(--font-code)", fontSize: 10, letterSpacing: "0.12em", color: "var(--plate-ink)" }}>
@@ -808,7 +829,7 @@ export function FlowTab({
                   }}
                 >
                     {data?.rfq.artwork
-                    ? `${(data.rfq.artwork.sizeBytes / 1024).toFixed(1)} KB · ${shortenHash(data.rfq.artwork.hash)}`
+                    ? artworkCaption(data.rfq.artwork)
                     : "Fingerprint stored after upload"}
                 </span>
               </span>

@@ -33,6 +33,7 @@ describe("RFQ parsing", () => {
     expect(result.spec.heightMm).toBe(30);
     expect(result.spec.deliveryPincode).toBe("560001");
     expect(result.missingFields).toEqual([]);
+    expect(result.engine).toBe("rules");
     expect(toLabelSpec(result.spec)).not.toBeNull();
   });
 

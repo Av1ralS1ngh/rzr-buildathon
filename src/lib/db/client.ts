@@ -48,6 +48,7 @@ const SQLITE_MIGRATIONS = [
   `ALTER TABLE negotiation_private_terms ADD COLUMN cross_sell_budget_paise INTEGER`,
   `ALTER TABLE negotiation_private_terms ADD COLUMN allowed_cross_sell_json TEXT NOT NULL DEFAULT '[]'`,
   `ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT`,
+  `ALTER TABLE rfqs ADD COLUMN artwork_preflight_json TEXT`,
 ];
 
 types.setTypeParser(20, (value) => Number(value));
@@ -182,6 +183,9 @@ class DatabaseClient {
       for (const statement of schemaStatements()) {
         await pool.query(statement);
       }
+      await pool.query(
+        `ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS artwork_preflight_json TEXT`
+      );
       return;
     }
 

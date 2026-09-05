@@ -1,13 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 const WIRE = [
   { line: "→ POST /api/capabilities/label-rules", fg: "#7FA9FF" },
   { line: "← 402 Payment Required", fg: "rgba(255,255,255,.92)" },
-  { line: "  PAYMENT-REQUIRED: x402/2; amount=12000; asset=INR-test", fg: "rgba(255,255,255,.62)" },
-  { line: "→ PAYMENT-SIGNATURE: eyJhbGciOiJFUzI1NiJ9…", fg: "#7FA9FF" },
-  { line: "  // presence alone is never trusted — verify, then settle", fg: "rgba(255,255,255,.45)" },
+  { line: "  PAYMENT-REQUIRED: x402/2; scheme=exact; network=eip155:84532", fg: "rgba(255,255,255,.62)" },
+  { line: "→ PAYMENT-SIGNATURE: <x402 v2 payload>", fg: "#7FA9FF" },
+  { line: "  // presence alone is never trusted — facilitator verify, then settle", fg: "rgba(255,255,255,.45)" },
   { line: "← 200 OK  PAYMENT-RESPONSE: settled", fg: "#4FD1A5" },
-  { line: '  { status: "pass", receiptId: "rcpt_rules_4b81c0d7" }', fg: "rgba(255,255,255,.8)" },
 ];
 
 const PROTOCOLS = [
@@ -28,7 +29,33 @@ const MANDATES = [
   { name: "speclock.payment-receipt.1", signed: true },
 ];
 
+type MeshStatus = {
+  x402: {
+    facilitatorUrl: string;
+    network: string;
+    payTo: string | null;
+    settlementReady: boolean;
+    supported: boolean;
+    error?: string;
+  };
+  parser: { llm: boolean; fallback: string };
+  labelRules: { pack: string };
+  printCheck: { localEngine: string; enfocus: boolean };
+};
+
 export function AgentMeshTab() {
+  const [status, setStatus] = useState<MeshStatus | null>(null);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void fetch("/api/x402/status")
+        .then((res) => res.json())
+        .then((body: MeshStatus) => setStatus(body))
+        .catch(() => setStatus(null));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   return (
     <div style={{ width: "min(100% - 56px, 940px)", margin: "0 auto", padding: "34px 0 120px" }}>
       <div style={{ fontFamily: "var(--font-code)", fontSize: 11, letterSpacing: "0.14em", color: "var(--ink-3)" }}>
@@ -57,6 +84,66 @@ export function AgentMeshTab() {
             </div>
           ))}
         </div>
+      </div>
+      <div
+        style={{
+          marginTop: 12,
+          background: "var(--sheet)",
+          border: "1px solid var(--rule)",
+          borderRadius: 14,
+          padding: "16px 18px",
+        }}
+      >
+        <div style={{ fontSize: 13.5, fontWeight: 600 }}>Live capability rails</div>
+        <div
+          style={{
+            marginTop: 12,
+            display: "grid",
+            gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+            gap: 10,
+            fontFamily: "var(--font-code)",
+            fontSize: 11,
+          }}
+          className="sl-split"
+        >
+          <StatusLine
+            label="x402 facilitator"
+            value={status?.x402?.facilitatorUrl?.replace("https://", "") ?? "checking…"}
+            ok={status?.x402.supported}
+          />
+          <StatusLine
+            label="x402 payTo"
+            value={
+              status?.x402.settlementReady
+                ? `${status.x402.payTo?.slice(0, 6)}…${status.x402.payTo?.slice(-4)}`
+                : "set X402_PAY_TO to settle"
+            }
+            ok={status?.x402.settlementReady}
+          />
+          <StatusLine
+            label="RFQ parser"
+            value={status?.parser.llm ? "LLM + Zod" : "rules + Zod fallback"}
+            ok
+          />
+          <StatusLine label="Label rules" value={status?.labelRules.pack ?? "statute pack"} ok />
+          <StatusLine
+            label="Print preflight"
+            value={
+              status?.printCheck.enfocus
+                ? "Enfocus PitStop + local"
+                : "local PDF/PNG/JPEG inspector"
+            }
+            ok
+          />
+          <StatusLine
+            label="Network"
+            value={status?.x402.network ?? "eip155:84532"}
+            ok={status?.x402.supported}
+          />
+        </div>
+        {status?.x402.error && (
+          <div style={{ marginTop: 10, color: "var(--flag)", fontSize: 12.5 }}>{status.x402.error}</div>
+        )}
       </div>
       <div className="sl-split" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
         <div style={{ background: "var(--sheet)", border: "1px solid var(--rule)", borderRadius: 14, overflow: "hidden" }}>
@@ -126,6 +213,15 @@ export function AgentMeshTab() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function StatusLine({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ color: "var(--ink-4)", letterSpacing: "0.08em", fontSize: 9.5 }}>{label.toUpperCase()}</span>
+      <span style={{ color: ok === false ? "var(--flag)" : "var(--ink)" }}>{value}</span>
     </div>
   );
 }
