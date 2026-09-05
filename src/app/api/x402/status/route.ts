@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { x402FacilitatorStatus } from "@/lib/x402";
 import { llmConfigured } from "@/lib/llm";
 import { enfocusConfigured } from "@/lib/enfocus";
+import { telegramConfigured } from "@/lib/telegram";
 import { STATUTE_PACK } from "@/lib/statutes/india-packaged-goods";
 
 export const runtime = "nodejs";
@@ -20,6 +21,9 @@ export async function GET() {
     printCheck: {
       localEngine: "speclock-preflight-v2",
       enfocus: enfocusConfigured(),
+    },
+    telegram: {
+      inbound: telegramConfigured(),
     },
   });
 }

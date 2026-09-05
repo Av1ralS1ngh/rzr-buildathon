@@ -70,6 +70,8 @@ Open http://localhost:43123
 | `LLM_API_KEY` / `GEMINI_API_KEY` / `OPENAI_API_KEY` | Optional | LLM RFQ parser; rules extractor is the fallback |
 | `LLM_BASE_URL` / `LLM_MODEL` | Optional | Google AI Studio OpenAI-compatible URL + `gemini-3.6-flash` when those env vars are set |
 | `ENFOCUS_PREFLIGHT_URL` / `ENFOCUS_API_KEY` | Optional | HTTP PitStop/pdfToolbox; local inspector always runs |
+| `TELEGRAM_BOT_TOKEN` | Optional | Free BotFather bot; incoming chats become RFQs |
+| `TELEGRAM_WEBHOOK_SECRET` | With Telegram | Shared secret Telegram sends on each webhook |
 
 \*Without Razorpay keys, checkout runs in **mock mode** (still demonstrates idempotent deposit capture).
 
@@ -84,6 +86,7 @@ The web UI is a four-tab deal desk (Flow, Merchant, Negotiation, Agent mesh). On
 5. Merchant tab lists live jobs; **Approve** for quotes over the ₹50,000 threshold.
 6. Negotiation tab opens a real two-agent session (floors redacted in buyer view).
 7. Agent mesh shows the x402 wire log and protocol surfaces.
+8. Telegram (optional): message the bot the same pickle sentence; it opens an RFQ and replies with the desk link.
 
 Fonts are Instrument Sans + JetBrains Mono. Light/dark toggle is in the header.
 
@@ -101,7 +104,8 @@ Fonts are Instrument Sans + JetBrains Mono. Light/dark toggle is in the header.
 | `POST /api/rfq/:id/approve` | Merchant quote approval |
 | `POST /api/capabilities/*` | x402-gated capability providers |
 | `GET /api/x402/status` | Live facilitator, parser, statute pack, Enfocus flags |
-| `POST /api/razorpay/webhook` | Webhook + client confirm |
+| `POST /api/telegram/webhook` | Telegram inbound RFQ (BotFather) |
+| `POST /api/telegram/setup` | Register webhook (internal secret) |
 | `GET /api/merchant/rfqs` | Merchant queue |
 | `GET /api/catalog` | Public merchant catalog (private costs/floors omitted) |
 | `POST /api/negotiations` | Create negotiation and opening offer |

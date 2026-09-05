@@ -16,6 +16,7 @@ const PROTOCOLS = [
   { name: "UCP 2026-04-08", path: "/ucp/v1/checkout-sessions/*" },
   { name: "AP2 COMPAT", path: "/api/ap2/mandates/:sessionId" },
   { name: "ACP 2026-04-17", path: "/checkout_sessions/*" },
+  { name: "TELEGRAM", path: "/api/telegram/webhook" },
   { name: "RAZORPAY", path: "/api/razorpay/webhook" },
   { name: "x402", path: "/api/capabilities/*" },
 ];
@@ -41,6 +42,7 @@ type MeshStatus = {
   parser: { llm: boolean; fallback: string };
   labelRules: { pack: string };
   printCheck: { localEngine: string; enfocus: boolean };
+  telegram?: { inbound: boolean };
 };
 
 export function AgentMeshTab() {
@@ -109,16 +111,16 @@ export function AgentMeshTab() {
           <StatusLine
             label="x402 facilitator"
             value={status?.x402?.facilitatorUrl?.replace("https://", "") ?? "checking…"}
-            ok={status?.x402.supported}
+            ok={status?.x402?.supported}
           />
           <StatusLine
             label="x402 payTo"
             value={
-              status?.x402.settlementReady
+              status?.x402?.settlementReady
                 ? `${status.x402.payTo?.slice(0, 6)}…${status.x402.payTo?.slice(-4)}`
                 : "set X402_PAY_TO to settle"
             }
-            ok={status?.x402.settlementReady}
+            ok={status?.x402?.settlementReady}
           />
           <StatusLine
             label="RFQ parser"
@@ -137,11 +139,16 @@ export function AgentMeshTab() {
           />
           <StatusLine
             label="Network"
-            value={status?.x402.network ?? "eip155:84532"}
-            ok={status?.x402.supported}
+            value={status?.x402?.network ?? "eip155:84532"}
+            ok={status?.x402?.supported}
+          />
+          <StatusLine
+            label="Telegram inbox"
+            value={status?.telegram?.inbound ? "webhook armed" : "create a bot, paste token"}
+            ok={status?.telegram?.inbound}
           />
         </div>
-        {status?.x402.error && (
+        {status?.x402?.error && (
           <div style={{ marginTop: 10, color: "var(--flag)", fontSize: 12.5 }}>{status.x402.error}</div>
         )}
       </div>
