@@ -417,8 +417,10 @@ export function NegotiationTab() {
                       fontSize: 11.5,
                     }}
                   >
-                    <span style={{ color: "var(--ink-4)", textDecoration: "line-through" }}>{formatInr(listGuess)}</span>
-                    <span style={{ fontWeight: 500 }}>{formatInr(b.totalPaise)}</span>
+                    {listGuess !== b.totalPaise && (
+                      <span style={{ color: "var(--ink-4)", textDecoration: "line-through" }}>{formatInr(listGuess)}</span>
+                    )}
+                    <span style={{ fontWeight: 500, marginLeft: "auto" }}>{formatInr(b.totalPaise)}</span>
                   </span>
                 </button>
               );

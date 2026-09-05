@@ -124,7 +124,7 @@ export function DealDesk({
                   scrollEl?.scrollTo({ top: 0 });
                   if (t.key === "merchant") history.replaceState(null, "", "/merchant");
                   else if (t.key === "flow" && rfqId) history.replaceState(null, "", `/rfq/${rfqId}`);
-                  else if (t.key === "flow") history.replaceState(null, "", "/");
+                  else history.replaceState(null, "", "/");
                 }}
                 style={{
                   appearance: "none",
