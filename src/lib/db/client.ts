@@ -191,6 +191,9 @@ class DatabaseClient {
       await pool.query(
         `ALTER TABLE rfqs ADD COLUMN IF NOT EXISTS product_id TEXT`
       );
+      await pool.query(
+        `CREATE INDEX IF NOT EXISTS idx_rfqs_product ON rfqs(product_id)`
+      );
       return;
     }
 
@@ -213,6 +216,8 @@ class DatabaseClient {
     sqlite
       .prepare(`UPDATE rfqs SET updated_at = created_at WHERE updated_at IS NULL`)
       .run();
+
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_rfqs_product ON rfqs(product_id)`);
 
     sqlite.exec(`
       WITH ranked AS (

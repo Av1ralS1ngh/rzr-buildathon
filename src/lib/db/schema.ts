@@ -361,8 +361,6 @@ export const SCHEMA_SQL = `
     ON negotiation_events(session_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_negotiation_messages_session
     ON negotiation_messages(session_id, created_at);
-  CREATE INDEX IF NOT EXISTS idx_rfqs_product
-    ON rfqs(product_id);
   CREATE INDEX IF NOT EXISTS idx_relationships_source
     ON product_relationships(source_product_id, relationship_type, relevance_score DESC);
   CREATE INDEX IF NOT EXISTS idx_bundle_options_session
