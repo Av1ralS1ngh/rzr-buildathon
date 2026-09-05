@@ -16,7 +16,7 @@ export const X402_PRICES_USD = {
 export const DEFAULT_X402_FACILITATOR_URL = "https://x402.org/facilitator";
 export const DEFAULT_X402_NETWORK = "eip155:84532";
 export const DEFAULT_X402_USDC =
-  "0x036CbD53842cFd8590b1C631E3ac9657c6c6d4d4";
+  "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 
 export type CapabilityName = keyof typeof X402_PRICES_USD;
 

@@ -14,6 +14,8 @@ export function llmConfigured(): boolean {
 function llmApiKey(): string | undefined {
   return (
     process.env.LLM_API_KEY?.trim() ||
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_API_KEY?.trim() ||
     process.env.OPENAI_API_KEY?.trim() ||
     process.env.NEON_AI_API_KEY?.trim() ||
     undefined
@@ -30,7 +32,11 @@ function llmBaseUrl(): string {
 }
 
 function llmModel(): string {
-  return process.env.LLM_MODEL?.trim() || "gpt-4o-mini";
+  if (process.env.LLM_MODEL?.trim()) return process.env.LLM_MODEL.trim();
+  if (llmBaseUrl().includes("generativelanguage.googleapis.com")) {
+    return "gemini-2.5-flash";
+  }
+  return "gpt-4o-mini";
 }
 
 export async function completeJson(system: string, user: string): Promise<LlmJsonResult> {
@@ -41,8 +47,12 @@ export async function completeJson(system: string, user: string): Promise<LlmJso
   const url = `${llmBaseUrl().replace(/\/+$/, "")}/chat/completions`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12_000);
+  const messages = [
+    { role: "system", content: system },
+    { role: "user", content: user },
+  ];
   try {
-    const response = await fetch(url, {
+    let response = await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -52,13 +62,25 @@ export async function completeJson(system: string, user: string): Promise<LlmJso
         model: llmModel(),
         temperature: 0,
         response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
+        messages,
       }),
       signal: controller.signal,
     });
+    if (response.status === 400) {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: llmModel(),
+          temperature: 0,
+          messages,
+        }),
+        signal: controller.signal,
+      });
+    }
     if (!response.ok) {
       return { ok: false, reason: `LLM HTTP ${response.status}` };
     }

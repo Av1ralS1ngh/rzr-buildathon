@@ -211,8 +211,8 @@ describe("x402 facilitator defaults", () => {
     const required = paymentRequirements("label_rules");
     expect(required.payTo).toBe("0x0000000000000000000000000000000000000000");
     expect(required.amount).toBe("20000");
-    process.env.X402_PAY_TO = "0x036CbD53842cFd8590b1C631E3ac9657c6c6d4d4";
-    expect(x402PayTo()).toBe("0x036CbD53842cFd8590b1C631E3ac9657c6c6d4d4");
+    process.env.X402_PAY_TO = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+    expect(x402PayTo()).toBe("0x036CbD53842c5426634e7929541eC2318f3dCF7e");
     expect(x402SettlementReady()).toBe(true);
   });
 });
